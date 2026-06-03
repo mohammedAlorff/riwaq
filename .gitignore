@@ -1,0 +1,11 @@
+# رواق — ملفات يجب ألا تُرفع للمستودع
+api/config.php
+setup-db.local.ps1
+start-mysql-local.bat
+setup-output.html
+uploads/*
+!uploads/.htaccess
+!uploads/.gitkeep
+*.log
+.DS_Store
+Thumbs.db

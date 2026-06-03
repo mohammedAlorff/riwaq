@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>دليل نشر رواق على InfinityFree</title>
+<style>
+  body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #f5f5f5; color: #222; margin: 0; padding: 20px; }
+  .container { max-width: 800px; margin: 0 auto; background: white; border-radius: 12px; padding: 40px; box-shadow: 0 2px 16px rgba(0,0,0,0.1); }
+  h1 { color: #1a1a2e; border-bottom: 3px solid #e85d26; padding-bottom: 12px; }
+  h2 { color: #e85d26; margin-top: 32px; }
+  .step { background: #fff8f5; border-right: 4px solid #e85d26; padding: 16px 20px; margin: 16px 0; border-radius: 6px; }
+  .step-num { background: #e85d26; color: white; border-radius: 50%; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; margin-left: 8px; }
+  code { background: #1a1a2e; color: #e2e2e2; padding: 2px 8px; border-radius: 4px; font-size: 0.9em; direction: ltr; display: inline-block; }
+  .code-block { background: #1a1a2e; color: #e2e2e2; padding: 16px; border-radius: 8px; direction: ltr; font-family: monospace; font-size: 0.9em; margin: 12px 0; overflow-x: auto; }
+  .note { background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 12px 16px; margin: 12px 0; }
+  .success { background: #d4edda; border: 1px solid #28a745; border-radius: 6px; padding: 12px 16px; margin: 12px 0; }
+  a { color: #e85d26; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  th { background: #1a1a2e; color: white; padding: 10px; text-align: right; }
+  td { padding: 10px; border-bottom: 1px solid #eee; }
+  tr:hover td { background: #f9f9f9; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <h1>🚀 دليل نشر موقع رواق</h1>
+  <p>هذا الدليل يأخذك خطوة بخطوة لرفع موقع رواق على <strong>InfinityFree</strong> (مجاني 100%).</p>
+
+  <div class="note">
+    ⏱️ <strong>الوقت المتوقع:</strong> 15–20 دقيقة | لا تحتاج خبرة تقنية متقدمة
+  </div>
+
+  <h2>الخطوة 1 — إنشاء حساب InfinityFree</h2>
+  <div class="step">
+    <span class="step-num">1</span> افتح <a href="https://infinityfree.com" target="_blank">infinityfree.com</a> واضغط <strong>Sign Up Free</strong>
+    <br><br>
+    <span class="step-num">2</span> سجّل بإيميلك وتأكّد منه
+    <br><br>
+    <span class="step-num">3</span> ادخل للوحة التحكم واضغط <strong>Create Account</strong> لإنشاء موقع جديد
+  </div>
+
+  <h2>الخطوة 2 — إنشاء قاعدة البيانات</h2>
+  <div class="step">
+    <span class="step-num">1</span> من لوحة التحكم، افتح <strong>MySQL Databases</strong>
+    <br><br>
+    <span class="step-num">2</span> أنشئ قاعدة بيانات جديدة — ستحصل على بيانات مثل:
+    <div class="code-block">
+Host:     sql123.epizy.com<br>
+Database: epiz_12345678_riwaq<br>
+Username: epiz_12345678<br>
+Password: (كلمة المرور اللي اخترتها)
+    </div>
+    <span class="step-num">3</span> <strong>احتفظ بهذه البيانات</strong> — ستحتاجها في الخطوة التالية
+  </div>
+
+  <h2>الخطوة 3 — ضبط config.php</h2>
+  <div class="step">
+    افتح ملف <code>api/config.php</code> وعدّل القيم بالبيانات اللي أخذتها:
+
+    <div class="code-block">
+'host'     => 'sql123.epizy.com',      // ← Host من InfinityFree<br>
+'name'     => 'epiz_12345678_riwaq',   // ← اسم قاعدة البيانات<br>
+'user'     => 'epiz_12345678',         // ← اسم المستخدم<br>
+'password' => 'كلمة-مرورك',            // ← كلمة المرور
+    </div>
+  </div>
+
+  <h2>الخطوة 4 — رفع الملفات</h2>
+  <div class="step">
+    <span class="step-num">1</span> من لوحة InfinityFree، افتح <strong>File Manager</strong>
+    <br><br>
+    <span class="step-num">2</span> انتقل لمجلد <code>htdocs</code>
+    <br><br>
+    <span class="step-num">3</span> ارفع ملف <code>riwaq-deploy.zip</code> (موجود عندك في مجلد المشروع)
+    <br><br>
+    <span class="step-num">4</span> بعد الرفع، انقر بزر اليمين على الملف واختر <strong>Extract</strong>
+    <br><br>
+    <span class="step-num">5</span> انقل محتويات مجلد <code>riwaq-deploy</code> مباشرة إلى <code>htdocs</code>
+  </div>
+
+  <h2>الخطوة 5 — تهيئة قاعدة البيانات</h2>
+  <div class="step">
+    افتح المتصفح وانتقل لـ:
+    <div class="code-block">
+https://your-site.epizy.com/api/setup.php
+    </div>
+    يجب أن ترى رسالة نجاح تقول "تم إنشاء الجداول". هذا يُنشئ الجداول ويضيف البيانات الأولية.
+    <div class="note">
+      ⚠️ <strong>مهم:</strong> بعد التهيئة، احذف أو أعد تسمية ملف <code>api/setup.php</code> لأسباب أمنية.
+    </div>
+  </div>
+
+  <h2>الخطوة 6 — تسجيل الدخول</h2>
+  <div class="step">
+    <table>
+      <tr><th>الرابط</th><th>الوصف</th></tr>
+      <tr><td><code>/رواق.html</code></td><td>موقع الطلاب (عام)</td></tr>
+      <tr><td><code>/presidents/</code></td><td>لوحة رئيس النادي</td></tr>
+      <tr><td><code>/admin/</code></td><td>لوحة الأدمن</td></tr>
+    </table>
+
+    بيانات الأدمن الافتراضية (من seed.sql):
+    <div class="code-block">
+اسم المستخدم: admin<br>
+كلمة المرور:  Admin@2026
+    </div>
+    <div class="note">🔐 غيّر كلمة المرور فوراً بعد أول دخول!</div>
+  </div>
+
+  <div class="success">
+    ✅ <strong>الموقع يعمل!</strong> شارك الرابط مع الطلاب وابدأ في إضافة المحتوى.
+  </div>
+
+  <hr>
+  <p style="color:#888; font-size:0.85em; text-align:center;">أُعدّ بواسطة Claude — رواق 2026</p>
+</div>
+</body>
+</html>
