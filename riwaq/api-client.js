@@ -1,7 +1,7 @@
-/* رواق — عميل REST API مشترك (مع وضع تجريبي تلقائي)
+/* رواق — عميل REST API مشترك
  *
- * إذا فشل أي طلب قراءة (GET) والـ window.RIWAQ_DEMO موجود،
- * يتحول العميل تلقائياً إلى وضع تجريبي ويُرجع بيانات نموذجية.
+ * البيانات التجريبية متاحة لفتح file:// أو عند طلب ?demo=1 فقط.
+ * أخطاء الخادم في الموقع المتصل تظهر للمستخدم ويمكن إعادة المحاولة.
  *
  *   RiwaqAPI.isDemo       → true لو يعمل من بيانات Demo
  *   RiwaqAPI.demoReason   → سبب الانتقال (network / configuration_missing / ...)
@@ -20,6 +20,8 @@
   const here = window.location.pathname;
   const inSub = /\/(presidents|admin)\//.test(here);
   const API_BASE = inSub ? "../api" : "api";
+  const allowDemo = window.location.protocol === "file:"
+    || new URLSearchParams(window.location.search).get("demo") === "1";
 
   class ApiError extends Error {
     constructor(code, message, status, extra) {
@@ -117,7 +119,7 @@
       return await realRequest(path, options);
     } catch (err) {
       // إذا كان طلب قراءة، وفي بيانات Demo، تحوّل للوضع التجريبي
-      if (isReadMethod(method) && window.RIWAQ_DEMO) {
+      if (allowDemo && isReadMethod(method) && window.RIWAQ_DEMO) {
         if (!window.RiwaqAPI.isDemo) {
           window.RiwaqAPI.isDemo = true;
           window.RiwaqAPI.demoReason = err.code || "network";

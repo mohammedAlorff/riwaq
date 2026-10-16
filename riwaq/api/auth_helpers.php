@@ -3,7 +3,7 @@
  * رواق — مرافق المصادقة والصلاحيات
  *
  *   - التحقق من الجلسة (token في cookie httpOnly).
- *   - حماية CSRF (double-submit token).
+ *   - حماية CSRF برمز مرتبط بالجلسة.
  *   - rate limiting (للـ login والـ writes).
  *   - تسجيل التدقيق.
  */
@@ -20,7 +20,7 @@ const RIWAQ_COOKIE_CSRF    = 'riwaq_csrf';
 // كوكيز
 // -------------------------------------------------------------
 function riwaq_set_cookie(string $name, string $value, int $expiresAt, bool $httpOnly = true): void {
-    $secure = !empty($_SERVER['HTTPS']);
+    $secure = riwaq_config()['cookie_secure'] ?? riwaq_is_https();
     setcookie($name, $value, [
         'expires'  => $expiresAt,
         'path'     => '/',
@@ -40,27 +40,28 @@ function riwaq_clear_cookie(string $name, bool $httpOnly = true): void {
 function riwaq_create_session(int $userId): string {
     $token   = bin2hex(random_bytes(32));   // 64 hex chars
     $ttl     = (int)(riwaq_config()['session_ttl_seconds'] ?? 28800);
-    $expires = (new DateTime('@' . (time() + $ttl)))->setTimezone(new DateTimeZone('Asia/Riyadh'));
-    $expiresFmt = $expires->format('Y-m-d H:i:s');
-
     $stmt = riwaq_db()->prepare(
         "INSERT INTO sessions (token, user_id, expires_at, ip_address, user_agent)
-         VALUES (:t, :u, :e, :ip, :ua)"
+         VALUES (:t, :u, DATE_ADD(NOW(), INTERVAL :ttl SECOND), :ip, :ua)"
     );
     $stmt->execute([
         ':t'  => $token,
         ':u'  => $userId,
-        ':e'  => $expiresFmt,
+        ':ttl' => $ttl,
         ':ip' => riwaq_client_ip() ?: null,
         ':ua' => mb_substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255) ?: null,
     ]);
 
+    return $token;
+}
+
+// Send credentials only after the transaction that persisted the session commits.
+function riwaq_set_session_cookies(string $token): void {
+    $ttl = (int)(riwaq_config()['session_ttl_seconds'] ?? 28800);
     riwaq_set_cookie(RIWAQ_COOKIE_SESSION, $token, time() + $ttl, true);
     // CSRF token (مكشوف للـ JS كي يقرأه ويرسله في الـ header)
-    $csrf = bin2hex(random_bytes(16));
+    $csrf = riwaq_csrf_token($token);
     riwaq_set_cookie(RIWAQ_COOKIE_CSRF, $csrf, time() + $ttl, false);
-
-    return $token;
 }
 
 function riwaq_destroy_session(string $token): void {
@@ -80,7 +81,7 @@ function riwaq_current_user(): ?array {
     $cached = true;
 
     $token = $_COOKIE[RIWAQ_COOKIE_SESSION] ?? '';
-    if ($token === '' || strlen($token) !== 64 || !ctype_xdigit($token)) {
+    if (!is_string($token) || strlen($token) !== 64 || !ctype_xdigit($token)) {
         return $user = null;
     }
 
@@ -123,12 +124,19 @@ function riwaq_require_user(string ...$rolesAllowed): array {
 // -------------------------------------------------------------
 // CSRF
 // -------------------------------------------------------------
+function riwaq_csrf_token(string $sessionToken): string {
+    return hash_hmac('sha256', 'riwaq-csrf-v1', $sessionToken);
+}
+
 function riwaq_require_csrf(): void {
     $method = riwaq_method();
     if (in_array($method, ['GET', 'HEAD', 'OPTIONS'], true)) return;
     $cookie = $_COOKIE[RIWAQ_COOKIE_CSRF] ?? '';
     $header = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
-    if ($cookie === '' || $header === '' || !hash_equals($cookie, $header)) {
+    $user = riwaq_current_user();
+    if (!$user || !is_string($cookie) || !is_string($header)
+        || !hash_equals(riwaq_csrf_token($user['token']), $header)
+        || !hash_equals($cookie, $header)) {
         riwaq_error('csrf_failed', 'فشل التحقق من توكن CSRF.', 419);
     }
 }
@@ -152,8 +160,8 @@ function riwaq_rate_limit(string $bucket, int $maxPerWindow, int $windowSeconds)
     $db  = riwaq_db();
     // نظّف النوافذ القديمة دورياً (بساطة: كل طلب فيه فرصة ٣٪)
     if (mt_rand(0, 99) < 3) {
-        $db->prepare("DELETE FROM rate_limits WHERE window_start < DATE_SUB(NOW(), INTERVAL :w SECOND)")
-           ->execute([':w' => $windowSeconds]);
+        // Read requests use a shorter window than login attempts; retain all active buckets.
+        $db->exec("DELETE FROM rate_limits WHERE window_start < DATE_SUB(NOW(), INTERVAL 1 DAY)");
     }
 
     $stmt = $db->prepare(
@@ -235,6 +243,6 @@ function riwaq_validate_username(string $u): ?string {
 
 function riwaq_validate_password(string $p): ?string {
     if (strlen($p) < 8)   return 'كلمة المرور قصيرة جدًا (٨ خانات على الأقل).';
-    if (strlen($p) > 128) return 'كلمة المرور طويلة جدًا.';
+    if (strlen($p) > 72) return 'كلمة المرور تتجاوز ٧٢ بايت؛ استخدم كلمة أقصر.';
     return null;
 }

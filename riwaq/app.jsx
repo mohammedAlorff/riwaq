@@ -1,8 +1,7 @@
 /* Main App — public student portal (read-only)
  *
- * يحمّل البيانات من /api عند الإقلاع. إذا فشل الـ API،
- * api-client يتحول تلقائياً إلى بيانات تجريبية من demo-data.js،
- * ونعرض شريط برتقالي يوضح للمستخدم أنه في وضع تجريبي.
+ * يحمّل البيانات من /api عند الإقلاع ويعرض أخطاء الاتصال لإعادة المحاولة.
+ * البيانات التجريبية مخصصة لفتح الملف مباشرة أو للمعاينة الصريحة.
  */
 
 const RiwaqData = React.createContext({
@@ -83,7 +82,32 @@ function DemoBanner({ reason }) {
 }
 
 function App() {
-  const [state, dispatch] = React.useReducer(reducer, initialState);
+  const routeFromHash = React.useCallback(() => {
+    const hash = location.hash.slice(1) || "feed";
+    const [path, query] = hash.split("?");
+    const detail = path.match(/^clubs\/(.+)$/);
+    if (detail) {
+      try { return { route: "clubDetail", clubDetailId: decodeURIComponent(detail[1]), feedTag: null }; }
+      catch { return { ...initialState }; }
+    }
+    if (path === "clubs" || path === "events") return { route: path, clubDetailId: null, feedTag: null };
+    return { route: "feed", clubDetailId: null, feedTag: new URLSearchParams(query || "").get("tag") };
+  }, []);
+  const [state, setState] = React.useState(routeFromHash);
+  React.useEffect(() => {
+    const sync = () => setState(routeFromHash());
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, [routeFromHash]);
+  const dispatch = React.useCallback(action => {
+    const hash = action.type === "openClub" ? "clubs/" + encodeURIComponent(action.id) :
+      action.type === "backFromClub" ? "clubs" :
+      action.type === "setFeedTag" ? "feed?tag=" + encodeURIComponent(action.tag) :
+      action.type === "clearFeedTag" ? "feed" :
+      action.type === "setRoute" ? action.route : "feed";
+    if (location.hash === "#" + hash) setState(routeFromHash());
+    else location.hash = hash;
+  }, [routeFromHash]);
   const [data, setData] = React.useState({
     clubs: [], posts: [], events: [],
     trendingTags: DEFAULT_TRENDING,
@@ -171,7 +195,11 @@ function App() {
           route={state.route === "clubDetail" ? "clubs" : state.route}
           setRoute={r => dispatch({ type: "setRoute", route: r })}
         />
+        <div className="workspace">
+        <div className="workspace-bar"><span>جامعة الإمام محمد بن سعود الإسلامية</span><span className="workspace-bar-actions"><span>{new Date().toLocaleDateString("ar-SA", {calendar: "gregory", weekday: "long", day: "numeric", month: "long"})}</span><button type="button" onClick={loadAll} title="تحديث البيانات" aria-label="تحديث البيانات"><Icon name="refresh" size={16}/></button></span></div>
+        <div className="content-layout">
         <main className="main">
+          {data.error && <p role="alert">تعذّر تحديث البيانات: {data.error}</p>}
           {state.route === "feed" && (
             <FeedScreen state={state} dispatch={dispatch}/>
           )}
@@ -192,6 +220,8 @@ function App() {
             onSelectTag={(tag) => dispatch({ type: "setFeedTag", tag })}
           />
         )}
+        </div>
+        </div>
       </div>
     </RiwaqData.Provider>
   );

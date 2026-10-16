@@ -18,6 +18,11 @@ function escape(str) {
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
+function publicAsset(url) {
+  const value = String(url || "");
+  return /^(?:https?:\/\/|\/)/i.test(value) ? value : "../" + value.replace(/^\.\//, "");
+}
+
 function arabicDigits(str) {
   const map = { "0":"٠","1":"١","2":"٢","3":"٣","4":"٤","5":"٥","6":"٦","7":"٧","8":"٨","9":"٩" };
   return String(str).replace(/[0-9]/g, d => map[d]);
@@ -56,11 +61,13 @@ let CACHE = {
   accounts: [],
   stats: { totalAccounts: 0, totalPosts: 0, totalEvents: 0 },
 };
+let clubFilters = {query:'', category:'', account:''};
 
 // ----------------------------------------------------------------
 // شاشة دخول الأدمن
 // ----------------------------------------------------------------
 function renderLogin() {
+  clubFilters = {query:'', category:'', account:''};
   $("#root").innerHTML = `
     <div class="login-shell">
       <div class="login-card">
@@ -103,7 +110,7 @@ function renderLogin() {
           منصة الطلبة في
           <a href="../رواق.html" style="color:var(--brand);font-weight:700">رواق</a>
           · لوحة الرؤساء في
-          <a href="../presidents/" style="color:var(--brand);font-weight:700">presidents</a>
+          <a href="../presidents/" style="color:var(--brand);font-weight:700">بوابة الرؤساء</a>
         </div>
       </div>
     </div>
@@ -197,11 +204,11 @@ async function renderDashboard() {
         <div>
           <h1>إدارة الأندية</h1>
           <div class="sub">
-            أنشئ نوادي جديدة (مع شعار وحساب الرئيس)، أو عدِّل القائمة الحالية.
+            جامعة الإمام محمد بن سعود الإسلامية
           </div>
         </div>
         <div class="page-head-actions">
-          <button class="btn btn-primary" id="new-club-btn">+ إنشاء نادٍ جديد</button>
+          <button class="btn btn-primary" id="new-club-btn">${RiwaqUI.icon('Plus')}إنشاء نادٍ جديد</button>
         </div>
       </div>
 
@@ -228,22 +235,38 @@ async function renderDashboard() {
         </div>
       </div>
 
-      <section class="card">
+      <section class="management-section">
         <div class="card-head">
           <h2>الأندية الحالية</h2>
           <span class="sub">${arabicDigits(CACHE.clubs.length)} نادٍ</span>
         </div>
+        <div class="table-tools management-filters">
+          <label class="filter-field filter-search"><span>البحث في الأندية</span><input id="club-search" type="search" placeholder="اسم النادي، الكلية، الحساب" value="${escape(clubFilters.query)}"/></label>
+          <label class="filter-field"><span>تصنيف النادي</span><select id="club-category" aria-label="تصنيف النادي"><option value="">جميع التصنيفات</option>${CATEGORIES.map(category => `<option value="${escape(category)}" ${clubFilters.category===category?'selected':''}>${escape(category)}</option>`).join('')}</select></label>
+          <label class="filter-field"><span>حالة حساب الرئيس</span><select id="club-account" aria-label="حالة حساب الرئيس"><option value="">جميع الأندية</option><option value="active" ${clubFilters.account==='active'?'selected':''}>لديه حساب</option><option value="missing" ${clubFilters.account==='missing'?'selected':''}>بلا حساب</option></select></label>
+          <button type="button" id="club-filter-clear" class="tool-btn" title="مسح الفلاتر" aria-label="مسح الفلاتر">${RiwaqUI.icon('ListRestart')}</button>
+        </div>
+        <div class="table-summary"><span id="club-search-count" role="status"></span><span>مرتب حسب اسم النادي</span></div>
         <div id="clubs-slot"></div>
       </section>
     </main>
   `;
 
   $("#logout").addEventListener("click", async () => {
-    try { await window.RiwaqAPI.logout(); } catch (e) {}
-    renderLogin();
+    try { await window.RiwaqAPI.logout(); renderLogin(); }
+    catch (error) { toast(error.message || "تعذّر تسجيل الخروج، حاول مرة أخرى", "danger"); }
   });
 
   $("#new-club-btn").addEventListener("click", openCreateClubModal);
+
+  $("#club-search").addEventListener("input", (event) => renderClubsTable(event.target.value));
+  $("#club-category").addEventListener("change", () => renderClubsTable());
+  $("#club-account").addEventListener("change", () => renderClubsTable());
+  $("#club-filter-clear").addEventListener("click", () => {
+    $("#club-search").value = $("#club-category").value = $("#club-account").value = '';
+    renderClubsTable();
+    $("#club-search").focus();
+  });
 
   renderClubsTable();
 }
@@ -251,8 +274,10 @@ async function renderDashboard() {
 // ----------------------------------------------------------------
 // جدول الأندية
 // ----------------------------------------------------------------
-function renderClubsTable() {
+function renderClubsTable(query = $("#club-search")?.value || "") {
   const slot = $("#clubs-slot");
+  clubFilters = {query, category:$("#club-category").value, account:$("#club-account").value};
+  $("#club-filter-clear").disabled = !Object.values(clubFilters).some(Boolean);
   if (CACHE.clubs.length === 0) {
     slot.innerHTML = `
       <div class="empty">
@@ -266,7 +291,14 @@ function renderClubsTable() {
   const accByClub = {};
   CACHE.accounts.forEach(a => { accByClub[a.clubId] = a; });
 
-  const sorted = CACHE.clubs.slice().sort((a, b) => a.name.localeCompare(b.name, "ar"));
+  const needle = query.trim().toLocaleLowerCase("ar");
+  const sorted = CACHE.clubs.filter(c =>
+    (!clubFilters.category || c.cat === clubFilters.category) &&
+    (!clubFilters.account || (clubFilters.account === 'active' ? !!accByClub[c.id] : !accByClub[c.id])) &&
+    (!needle || [c.name, c.cat, c.college, accByClub[c.id]?.username || ""].some(value => String(value).toLocaleLowerCase("ar").includes(needle)))
+  ).sort((a, b) => a.name.localeCompare(b.name, "ar"));
+  const count = $("#club-search-count");
+  if (count) count.textContent = `${arabicDigits(sorted.length)} من ${arabicDigits(CACHE.clubs.length)} نادٍ`;
 
   slot.innerHTML = `
     <div class="accounts-table-wrap">
@@ -284,11 +316,11 @@ function renderClubsTable() {
           ${sorted.map(c => {
             const acc = accByClub[c.id];
             const iconCell = c.image
-              ? `<div class="acc-club-icon" style="background:#fff;padding:0;overflow:hidden"><img src="${escape(c.image)}" alt="" style="width:100%;height:100%;object-fit:cover"/></div>`
+              ? `<div class="acc-club-icon" style="background:#fff;padding:0;overflow:hidden"><img src="${escape(publicAsset(c.image))}" alt="" style="width:100%;height:100%;object-fit:cover"/></div>`
               : `<div class="acc-club-icon" style="background:${c.color}">${escape(c.icon)}</div>`;
             return `
               <tr>
-                <td>
+                <td data-label="النادي">
                   <div class="acc-club">
                     ${iconCell}
                     <div>
@@ -297,14 +329,14 @@ function renderClubsTable() {
                     </div>
                   </div>
                 </td>
-                <td><span class="club-cat-chip">${escape(c.cat)}</span></td>
-                <td style="font-size:13px;color:var(--ink-2)">${escape(c.college)}</td>
-                <td>
+                <td data-label="التصنيف"><span class="club-cat-chip">${escape(c.cat)}</span></td>
+                <td data-label="الكلية" style="font-size:13px;color:var(--ink-2)">${escape(c.college)}</td>
+                <td data-label="اسم المستخدم">
                   ${acc
                     ? `<span class="acc-username">${escape(acc.username)}</span>`
-                    : `<span style="color:var(--ink-4);font-size:12px">— بلا حساب —</span>`}
+                    : `<span class="account-missing">بلا حساب</span>`}
                 </td>
-                <td>
+                <td data-label="إجراءات">
                   <div class="acc-actions">
                     <button class="btn btn-ghost btn-sm" data-edit-club="${escape(c.id)}">تعديل</button>
                     ${acc
@@ -315,7 +347,7 @@ function renderClubsTable() {
                 </td>
               </tr>
             `;
-          }).join("")}
+          }).join("") || '<tr class="table-empty"><td colspan="5">لا توجد أندية تطابق الفلاتر</td></tr>'}
         </tbody>
       </table>
     </div>
@@ -367,7 +399,7 @@ function openClubModal({ mode, club }) {
             <label>شعار النادي</label>
             <div class="club-form-preview" id="club-preview" style="background:${c.color}">
               ${c.image
-                ? `<img src="${escape(c.image)}" alt="" id="preview-img"/>`
+                ? `<img src="${escape(publicAsset(c.image))}" alt="" id="preview-img"/>`
                 : `<span id="preview-icon">${escape(c.icon || "؟")}</span>`}
             </div>
             <div class="club-form-icon-controls">
@@ -460,7 +492,7 @@ function openClubModal({ mode, club }) {
 
       <div class="modal-foot">
         <button type="button" class="btn btn-ghost" id="club-cancel">إلغاء</button>
-        <button type="button" class="btn btn-primary" id="club-save">
+        <button type="submit" form="club-form" class="btn btn-primary" id="club-save">
           ${isEdit ? "حفظ التعديلات" : "إنشاء النادي + الحساب"}
         </button>
       </div>
@@ -468,7 +500,7 @@ function openClubModal({ mode, club }) {
   `;
   document.body.appendChild(back);
 
-  const close = () => back.remove();
+  const close = () => { document.removeEventListener("keydown", onKey); back.remove(); };
   back.addEventListener("click", (e) => { if (e.target === back) close(); });
   $("#club-cancel", back).addEventListener("click", close);
   $$("[data-toggle]", back).forEach(b => b.addEventListener("click", togglePassword));
@@ -499,7 +531,7 @@ function openClubModal({ mode, club }) {
       $("#club-image-url", back).value = result.url;
       const preview = $("#club-preview", back);
       preview.style.background = "#fff";
-      preview.innerHTML = `<img src="${escape(result.url)}" alt="" id="preview-img"/>`;
+      preview.innerHTML = `<img src="${escape(publicAsset(result.url))}" alt="" id="preview-img"/>`;
       toast("تم رفع الصورة");
     } catch (err) {
       errEl.textContent = "تعذّر رفع الصورة: " + (err.message || "");
@@ -522,7 +554,8 @@ function openClubModal({ mode, club }) {
   }
 
   // الحفظ
-  $("#club-save", back).addEventListener("click", async () => {
+  $("#club-form", back).addEventListener("submit", async (event) => {
+    event.preventDefault();
     const errEl = $("#club-error", back);
     const btn   = $("#club-save", back);
     errEl.classList.remove("show");
@@ -617,7 +650,7 @@ function openChangePasswordModal(username) {
         <h2 id="modal-title">تغيير كلمة مرور</h2>
         <div class="sub">${escape(clubName)} · ${escape(username)}</div>
       </div>
-      <form class="modal-body" autocomplete="off">
+      <form class="modal-body" id="password-form" autocomplete="off">
         <div class="field">
           <label for="new-pwd">كلمة المرور الجديدة<span class="req">*</span></label>
           <div class="pwd-wrap">
@@ -634,13 +667,13 @@ function openChangePasswordModal(username) {
       </form>
       <div class="modal-foot">
         <button type="button" class="btn btn-ghost" id="pwd-cancel">إلغاء</button>
-        <button type="button" class="btn btn-primary" id="pwd-save">حفظ</button>
+        <button type="submit" form="password-form" class="btn btn-primary" id="pwd-save">حفظ</button>
       </div>
     </div>
   `;
   document.body.appendChild(back);
 
-  const close = () => back.remove();
+  const close = () => { document.removeEventListener("keydown", onKey); back.remove(); };
   back.addEventListener("click", (e) => { if (e.target === back) close(); });
   $("#pwd-cancel", back).addEventListener("click", close);
   $$("[data-toggle]", back).forEach(b => b.addEventListener("click", togglePassword));
@@ -648,10 +681,13 @@ function openChangePasswordModal(username) {
   const onKey = (e) => { if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); } };
   document.addEventListener("keydown", onKey);
 
-  $("#pwd-save", back).addEventListener("click", async () => {
+  $("#password-form", back).addEventListener("submit", async (event) => {
+    event.preventDefault();
     const errEl = $("#pwd-error", back);
     const newPwd = $("#new-pwd", back).value;
     errEl.classList.remove("show");
+    const saveButton = $("#pwd-save", back);
+    saveButton.disabled = true;
     try {
       await window.RiwaqAPI.accounts.updatePassword(username, newPwd);
       close();
@@ -661,6 +697,7 @@ function openChangePasswordModal(username) {
     } catch (err) {
       errEl.textContent = err.message || "تعذّر التحديث";
       errEl.classList.add("show");
+      saveButton.disabled = false;
     }
   });
 

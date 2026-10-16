@@ -16,6 +16,10 @@ $db     = riwaq_db();
 
 // كل العمليات تتطلب أدمن
 $u = riwaq_require_user('admin');
+if (in_array($method, ['POST', 'PUT', 'DELETE'], true)) {
+    riwaq_require_csrf();
+    riwaq_rate_limit("write:user:{$u['id']}", (int)riwaq_config()['rate_limit']['write_per_user_per_min'], 60);
+}
 
 switch ($method) {
     case 'GET':    listAccounts($db);   break;
@@ -68,7 +72,7 @@ function createAccount(PDO $db, array $admin): void {
     $body     = riwaq_read_json();
     $username = riwaq_str($body['username'] ?? '', 32);
     $clubId   = riwaq_str($body['clubId']   ?? '', 16);
-    $password = (string)($body['password'] ?? '');
+    $password = riwaq_password_input($body['password'] ?? '');
 
     if ($err = riwaq_validate_username($username)) riwaq_error('invalid_username', $err, 422);
     if ($err = riwaq_validate_password($password)) riwaq_error('invalid_password', $err, 422);
@@ -94,7 +98,19 @@ function createAccount(PDO $db, array $admin): void {
         "INSERT INTO users (username, password_hash, role, club_id)
          VALUES (:u, :h, 'president', :c)"
     );
-    $ins->execute([':u' => $username, ':h' => $hash, ':c' => $clubId]);
+    try {
+        $ins->execute([':u' => $username, ':h' => $hash, ':c' => $clubId]);
+    } catch (PDOException $e) {
+        // Preflight checks can race; database constraints remain authoritative.
+        $code = (int)($e->errorInfo[1] ?? 0);
+        if ($code === 1062) {
+            $dup->execute([':u' => $username]);
+            if ($dup->fetchColumn()) riwaq_error('username_taken', 'اسم المستخدم موجود مسبقًا.', 409);
+            riwaq_error('club_has_account', 'هذا النادي يملك حسابًا بالفعل.', 409);
+        }
+        if ($code === 1452) riwaq_error('club_not_found', 'النادي غير موجود.', 422);
+        throw $e;
+    }
 
     riwaq_audit($admin, 'account.create', 'user', $username, ['clubId' => $clubId]);
     riwaq_ok(['username' => $username, 'clubId' => $clubId]);
@@ -103,11 +119,11 @@ function createAccount(PDO $db, array $admin): void {
 function updateAccount(PDO $db, array $admin): void {
     riwaq_require_csrf();
 
-    $username = isset($_GET['username']) ? trim((string)$_GET['username']) : '';
+    $username = riwaq_str($_GET['username'] ?? '', 32);
     if ($username === '') riwaq_error('missing_field', 'اسم المستخدم مطلوب.', 422);
 
     $body     = riwaq_read_json();
-    $password = (string)($body['password'] ?? '');
+    $password = riwaq_password_input($body['password'] ?? '');
     if ($err = riwaq_validate_password($password)) riwaq_error('invalid_password', $err, 422);
 
     $check = $db->prepare("SELECT id FROM users WHERE username = :u AND role = 'president'");
@@ -116,11 +132,16 @@ function updateAccount(PDO $db, array $admin): void {
     if (!$uid) riwaq_error('not_found', 'الحساب غير موجود.', 404);
 
     $hash = riwaq_hash_password($password);
-    $db->prepare("UPDATE users SET password_hash = :h WHERE id = :id")
-       ->execute([':h' => $hash, ':id' => $uid]);
-
-    // ابطل كل جلسات المستخدم النشطة (إلزامه بإعادة الدخول)
-    $db->prepare("DELETE FROM sessions WHERE user_id = :id")->execute([':id' => $uid]);
+    $db->beginTransaction();
+    try {
+        $db->prepare("UPDATE users SET password_hash = :h WHERE id = :id")
+           ->execute([':h' => $hash, ':id' => $uid]);
+        $db->prepare("DELETE FROM sessions WHERE user_id = :id")->execute([':id' => $uid]);
+        $db->commit();
+    } catch (Throwable $e) {
+        $db->rollBack();
+        throw $e;
+    }
 
     riwaq_audit($admin, 'account.update_password', 'user', $username);
     riwaq_ok();
@@ -129,7 +150,7 @@ function updateAccount(PDO $db, array $admin): void {
 function deleteAccount(PDO $db, array $admin): void {
     riwaq_require_csrf();
 
-    $username = isset($_GET['username']) ? trim((string)$_GET['username']) : '';
+    $username = riwaq_str($_GET['username'] ?? '', 32);
     if ($username === '') riwaq_error('missing_field', 'اسم المستخدم مطلوب.', 422);
 
     $check = $db->prepare("SELECT id, club_id FROM users WHERE username = :u AND role = 'president'");

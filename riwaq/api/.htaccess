@@ -1,8 +1,8 @@
 # رواق — API
-# يمنع الوصول المباشر إلى ملفات المساعدة وملفات SQL.
+# يمنع الوصول المباشر إلى ملفات المساعدة والإعدادات وملفات SQL.
 
-# اسمح فقط للنقاط النهائية المعتمدة + setup أثناء التركيب.
-<FilesMatch "^(db|helpers|auth_helpers|config|config\.example)\.php$">
+# التهيئة من سطر الأوامر فقط.
+<FilesMatch "^(setup|db|helpers|auth_helpers|config(?:\..*)?)\.php$">
     Require all denied
 </FilesMatch>
 

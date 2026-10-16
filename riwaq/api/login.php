@@ -12,7 +12,7 @@ riwaq_rate_limit("login:$ip", (int)$cfg['login_per_ip_per_15min'], 900);
 
 $body     = riwaq_read_json();
 $username = riwaq_str($body['username'] ?? '', 64);
-$password = (string)($body['password'] ?? '');
+$password = riwaq_password_input($body['password'] ?? '');
 
 if ($username === '' || $password === '') {
     riwaq_log_login_attempt($username ?: null, false);
@@ -45,24 +45,40 @@ if (!$valid) {
     riwaq_error('invalid_credentials', 'اسم المستخدم أو كلمة المرور غير صحيحة.', 401);
 }
 
-// تحقق إضافي: لو رئيس نادي، تأكد أن النادي ما زال موجوداً
-if ($user['role'] === 'president') {
-    if (!$user['club_id']) {
-        riwaq_error('account_misconfigured', 'الحساب غير مرتبط بنادٍ.', 500);
+$db = riwaq_db();
+$db->beginTransaction();
+try {
+    // A reset/deletion must serialize with issuance, including an already-verified login.
+    $locked = $db->prepare('SELECT id, username, password_hash, role, club_id FROM users WHERE id = :id FOR UPDATE');
+    $locked->execute([':id' => $user['id']]);
+    $current = $locked->fetch();
+    if (!$current || !hash_equals($user['password_hash'], $current['password_hash'])) {
+        $db->rollBack();
+        riwaq_log_login_attempt($username, false);
+        riwaq_error('invalid_credentials', 'اسم المستخدم أو كلمة المرور غير صحيحة.', 401);
     }
-    $check = riwaq_db()->prepare("SELECT 1 FROM clubs WHERE id = :c");
-    $check->execute([':c' => $user['club_id']]);
-    if (!$check->fetchColumn()) {
-        riwaq_error('club_missing', 'النادي المرتبط بهذا الحساب غير موجود.', 410);
+    $user = $current;
+    if ($user['role'] === 'president') {
+        if (!$user['club_id']) {
+            $db->rollBack();
+            riwaq_error('account_misconfigured', 'الحساب غير مرتبط بنادٍ.', 500);
+        }
+        $check = $db->prepare('SELECT 1 FROM clubs WHERE id = :c');
+        $check->execute([':c' => $user['club_id']]);
+        if (!$check->fetchColumn()) {
+            $db->rollBack();
+            riwaq_error('club_missing', 'النادي المرتبط بهذا الحساب غير موجود.', 410);
+        }
     }
+    $token = riwaq_create_session((int)$user['id']);
+    $db->prepare('UPDATE users SET last_login_at = NOW() WHERE id = :id')->execute([':id' => $user['id']]);
+    riwaq_log_login_attempt($username, true);
+    $db->commit();
+} catch (Throwable $e) {
+    if ($db->inTransaction()) $db->rollBack();
+    throw $e;
 }
-
-riwaq_log_login_attempt($username, true);
-riwaq_create_session((int)$user['id']);
-
-// آخر دخول
-riwaq_db()->prepare("UPDATE users SET last_login_at = NOW() WHERE id = :id")
-          ->execute([':id' => $user['id']]);
+riwaq_set_session_cookies($token);
 
 riwaq_audit([
     'id'       => (int)$user['id'],

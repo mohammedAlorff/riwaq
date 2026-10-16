@@ -8,7 +8,7 @@ declare(strict_types=1);
 function riwaq_config(): array {
     static $config = null;
     if ($config !== null) return $config;
-    $path = __DIR__ . '/config.php';
+    $path = getenv('RIWAQ_CONFIG_PATH') ?: __DIR__ . '/config.php';
     if (!is_file($path)) {
         http_response_code(500);
         header('Content-Type: application/json; charset=utf-8');
@@ -42,6 +42,7 @@ function riwaq_db(): PDO {
             PDO::ATTR_EMULATE_PREPARES   => false,
             $mysqlInitCommand            => "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci",
         ]);
+        $pdo->exec("SET time_zone = '+03:00'");
     } catch (PDOException $e) {
         $debug = riwaq_config()['debug'] ?? false;
         http_response_code(500);

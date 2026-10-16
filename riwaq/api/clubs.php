@@ -14,6 +14,11 @@ riwaq_handle_cors();
 $method = riwaq_method();
 $db     = riwaq_db();
 $ip     = riwaq_client_ip() ?: 'unknown';
+if (in_array($method, ['POST', 'PUT', 'DELETE'], true)) {
+    $writer = riwaq_require_user('admin');
+    riwaq_require_csrf();
+    riwaq_rate_limit("write:user:{$writer['id']}", (int)riwaq_config()['rate_limit']['write_per_user_per_min'], 60);
+}
 
 switch ($method) {
     case 'GET':    handleGet($db, $ip);    break;
@@ -29,7 +34,7 @@ switch ($method) {
 function handleGet(PDO $db, string $ip): void {
     riwaq_rate_limit("read:$ip", (int)riwaq_config()['rate_limit']['read_per_ip_per_min'], 60);
 
-    $id = isset($_GET['id']) ? trim((string)$_GET['id']) : '';
+    $id = riwaq_str($_GET['id'] ?? '', 16);
 
     if ($id !== '') {
         $stmt = $db->prepare("SELECT * FROM clubs WHERE id = :id");
@@ -106,7 +111,7 @@ function handleCreate(PDO $db): void {
 
     // -------- حقول الحساب --------
     $username = riwaq_str($body['username'] ?? '', 32);
-    $password = (string)($body['password'] ?? '');
+    $password = riwaq_password_input($body['password'] ?? '');
     if ($err = riwaq_validate_username($username)) riwaq_error('invalid_username', $err, 422);
     if ($err = riwaq_validate_password($password)) riwaq_error('invalid_password', $err, 422);
 
@@ -115,9 +120,18 @@ function handleCreate(PDO $db): void {
     $dup->execute([':u' => $username]);
     if ($dup->fetchColumn()) riwaq_error('username_taken', 'اسم المستخدم موجود مسبقًا.', 409);
 
-    // -------- إنشاء في معاملة ذرّية --------
-    $db->beginTransaction();
+    $hash = riwaq_hash_password($password);
+    // Serialize the cN allocator across all admins without changing existing IDs/schema.
+    $lockName = 'riwaq-clubs-' . substr(hash('sha256', (string)$db->query('SELECT DATABASE()')->fetchColumn()), 0, 40);
+    $lock = $db->prepare('SELECT GET_LOCK(:name, 5)');
+    $lock->execute([':name' => $lockName]);
+    if ((int)$lock->fetchColumn() !== 1) {
+        header('Retry-After: 5');
+        riwaq_error('temporarily_busy', 'إنشاء الأندية مشغول مؤقتًا. حاول مرة أخرى.', 503);
+    }
+    $usernameTaken = false;
     try {
+        $db->beginTransaction();
         $clubId = riwaq_next_club_id($db);
         $cover  = riwaq_make_cover($color);
 
@@ -137,7 +151,6 @@ function handleCreate(PDO $db): void {
             ':cv'  => $cover,
         ]);
 
-        $hash = riwaq_hash_password($password);
         $db->prepare(
             "INSERT INTO users (username, password_hash, role, club_id)
              VALUES (:u, :h, 'president', :c)"
@@ -145,9 +158,16 @@ function handleCreate(PDO $db): void {
 
         $db->commit();
     } catch (Throwable $e) {
-        $db->rollBack();
-        throw $e;
+        if ($db->inTransaction()) $db->rollBack();
+        if ($e instanceof PDOException && (int)($e->errorInfo[1] ?? 0) === 1062) {
+            $dup->execute([':u' => $username]);
+            $usernameTaken = (bool)$dup->fetchColumn();
+        }
+        if (!$usernameTaken) throw $e;
+    } finally {
+        $db->prepare('SELECT RELEASE_LOCK(:name)')->execute([':name' => $lockName]);
     }
+    if ($usernameTaken) riwaq_error('username_taken', 'اسم المستخدم موجود مسبقًا.', 409);
 
     riwaq_audit($admin, 'club.create', 'club', $clubId, [
         'name'     => $name,
@@ -169,7 +189,7 @@ function handleUpdate(PDO $db): void {
     $admin = riwaq_require_user('admin');
     riwaq_require_csrf();
 
-    $id = isset($_GET['id']) ? trim((string)$_GET['id']) : '';
+    $id = riwaq_str($_GET['id'] ?? '', 16);
     if ($id === '') riwaq_error('missing_field', 'معرّف النادي مطلوب.', 422);
 
     $exists = $db->prepare("SELECT * FROM clubs WHERE id = :id");
@@ -190,6 +210,9 @@ function handleUpdate(PDO $db): void {
     $description = isset($body['desc'])    ? riwaq_str($body['desc'],   5000) : $current['description'];
 
     // تحقّق
+    if ($name === '' || $college === '' || $description === '') {
+        riwaq_error('missing_field', 'اسم النادي والكلية والوصف مطلوبة.', 422);
+    }
     if (!preg_match('/^#[0-9a-fA-F]{6}$/', $color)) {
         riwaq_error('invalid_color', 'اللون يجب أن يكون بصيغة #RRGGBB.', 422);
     }
@@ -237,7 +260,7 @@ function handleDelete(PDO $db): void {
     $admin = riwaq_require_user('admin');
     riwaq_require_csrf();
 
-    $id = isset($_GET['id']) ? trim((string)$_GET['id']) : '';
+    $id = riwaq_str($_GET['id'] ?? '', 16);
     if ($id === '') riwaq_error('missing_field', 'معرّف النادي مطلوب.', 422);
 
     $check = $db->prepare("SELECT name FROM clubs WHERE id = :id");

@@ -66,6 +66,11 @@ function FeedScreen({ state, dispatch }) {
       </MainHead>
 
       <div className="main-body">
+        <section className="campus-feature" aria-label="مجتمع رواق">
+          <img src="assets/campus.jpg" alt="مدخل جامعة الإمام محمد بن سعود الإسلامية"/>
+          <div className="campus-feature-copy"><span>من قلب الجامعة</span><h2>كل شغفٍ يجد رواقه.</h2><p>أندية، أفكار، وفعاليات تصنع يومك الجامعي.</p><a href="#clubs">استكشف الأندية <Icon name="arrow-left" size={17}/></a></div>
+        </section>
+        <div className="feed-section-heading"><h2>من مجتمعنا</h2><span>{arabicDigits(filtered.length)} منشور</span></div>
         {tagFilter && (
           <div className="filter-bar" role="status">
             <span className="filter-bar-label">عرض المنشورات الموسومة بـ</span>
@@ -278,7 +283,7 @@ function ClubDetail({ clubId, state, dispatch, onBack }) {
       <div className="stats-row">
         <div className="stat-cell">
           <div className="stat-v">{arabicDigits(club.members)}</div>
-          <div className="stat-l">عضو نشط</div>
+          <div className="stat-l">عضو</div>
         </div>
         <div className="stat-cell">
           <div className="stat-v">{arabicDigits(clubPosts.length)}</div>
@@ -358,19 +363,8 @@ function ClubDetail({ clubId, state, dispatch, onBack }) {
         {tab === "about" && (
           <div className="panel">
             <h3 className="panel-title">عن {club.name}</h3>
-            <p className="panel-text">
-              {club.desc} يجتمع أعضاء النادي بشكل دوري داخل الحرم الجامعي لتنظيم الفعاليات والورش وإصدار الإعلانات الرسمية بعد اعتمادها من إدارة الأنشطة الطلابية بالجامعة.
-            </p>
-            <h4 className="panel-subtitle">شروط العضوية</h4>
-            <ul className="panel-list">
-              <li>· أن يكون منتسبًا لجامعة الإمام محمد بن سعود.</li>
-              <li>· الالتزام بسياسة الأنشطة الطلابية المعتمدة.</li>
-              <li>· المشاركة الفعّالة في فعاليتين على الأقل في الفصل.</li>
-            </ul>
-            <h4 className="panel-subtitle">كيف تنضم؟</h4>
-            <div className="panel-text" style={{ fontSize: 14 }}>
-              تواصل مع إدارة الأنشطة الطلابية في مبنى ١٢، أو راسل النادي مباشرة عبر حساباته الرسمية في تبويب «حسابات النادي».
-            </div>
+            <p className="panel-text">{club.desc}</p>
+            {hasSocials && <><h4 className="panel-subtitle">تواصل مع النادي</h4><SocialLinks socials={club.socials}/></>}
           </div>
         )}
       </div>
@@ -386,6 +380,7 @@ function EventCard({ ev, club, onOpenClub, interactive = true }) {
   const taken = Math.min(spots, Math.max(0, Number(ev.taken) || 0));
   const pct   = spots > 0 ? Math.round((taken / spots) * 100) : 0;
   const full  = spots > 0 && taken >= spots;
+  const past = eventIsPast(ev);
 
   const handleOpenClub = () => {
     if (!interactive) return;
@@ -408,16 +403,12 @@ function EventCard({ ev, club, onOpenClub, interactive = true }) {
   const displayTime = ev.time ? arabicDigits((ev.time || "").slice(0, 5)) : "";
 
   return (
-    <div
-      className={`event-card ${interactive ? "is-interactive" : ""}`}
+    <article
+      className={`event-card ${interactive ? "is-interactive" : ""} ${past ? "is-past" : ""}`}
       role={interactive ? "group" : undefined}
       aria-label={`فعالية ${ev.title}${club ? " · " + club.name : ""}`}
     >
-      <div
-        className="event-card-head"
-        onClick={handleOpenClub}
-        style={interactive ? { cursor: "pointer" } : undefined}
-      >
+      <div className="event-card-head">
         <div className="event-card-date" aria-hidden="true">
           <div className="d">{dayLabel}</div>
           <div className="m">{monthLabel}</div>
@@ -425,13 +416,15 @@ function EventCard({ ev, club, onOpenClub, interactive = true }) {
         <div className="event-card-headtext">
           <div className="event-card-title">{ev.title}</div>
           {club && (
-            <div className="event-card-club">
+            interactive ? <button type="button" className="event-card-club event-card-club-link" onClick={handleOpenClub} aria-label={`عرض ${club.name}`}>
               <span className="event-card-club-dot" style={{ background: club.color }} aria-hidden="true"></span>
               {club.name}
-            </div>
+            </button> : <div className="event-card-club"><span className="event-card-club-dot" style={{ background: club.color }} aria-hidden="true"></span>{club.name}</div>
           )}
         </div>
       </div>
+      {past && <span className="event-state">انتهت الفعالية</span>}
+      {ev.description && <p className="event-description">{ev.description}</p>}
       <div className="event-card-row"><span className="ico"><Icon name="calendar" size={14}/></span>{displayDate}</div>
       <div className="event-card-row"><span className="ico"><Icon name="clock"    size={14}/></span>{displayTime}</div>
       <div className="event-card-row"><span className="ico"><Icon name="pin"      size={14}/></span>{ev.location}</div>
@@ -451,7 +444,7 @@ function EventCard({ ev, club, onOpenClub, interactive = true }) {
         </div>
       </div>
 
-      {ev.registrationUrl && !full && (
+      {ev.registrationUrl && !full && !eventIsPast(ev) && (
         <a
           className="btn btn-primary event-card-register"
           href={ev.registrationUrl}
@@ -463,13 +456,13 @@ function EventCard({ ev, club, onOpenClub, interactive = true }) {
           <span>سجِّل في الفعالية</span>
         </a>
       )}
-      {!ev.registrationUrl && !full && (
+      {!ev.registrationUrl && !full && !eventIsPast(ev) && (
         <div className="event-card-open-attendance">
           <Icon name="users" size={13}/>
           <span>الحضور مفتوح · للتسجيل تواصل مع النادي عبر حساباته</span>
         </div>
       )}
-    </div>
+    </article>
   );
 }
 
@@ -478,24 +471,55 @@ function EventCard({ ev, club, onOpenClub, interactive = true }) {
 // ====================================================================
 function EventsScreen({ state, dispatch }) {
   const { clubs, events } = React.useContext(window.RiwaqData);
+  const [period, setPeriod] = React.useState("upcoming");
+  const [query, setQuery] = React.useState("");
+  const [clubId, setClubId] = React.useState("");
   const clubMap = React.useMemo(
     () => Object.fromEntries(clubs.map(c => [c.id, c])),
     [clubs]
   );
+  const available = events.filter(e => clubMap[e.clubId]);
+  const upcoming = available.filter(e => !eventIsPast(e));
+  const pool = period === "upcoming" ? upcoming : available.filter(eventIsPast);
+  const needle = query.trim().toLocaleLowerCase("ar");
+  const hasFilters = !!(needle || clubId);
+  const clearFilters = () => { setQuery(""); setClubId(""); };
+  const shown = pool.filter(e => (!clubId || e.clubId === clubId) && (!needle ||
+    [e.title, e.description, e.location, clubMap[e.clubId].name].some(value =>
+      String(value || "").toLocaleLowerCase("ar").includes(needle))))
+    .sort((a,b) => {
+      const comparison = (a.date + (a.time || "")).localeCompare(b.date + (b.time || ""));
+      return period === "upcoming" ? comparison : -comparison;
+    });
 
   return (
     <>
-      <MainHead title="الفعاليات" sub={`${arabicDigits(events.length)} فعالية قادمة من أندية الجامعة`}/>
+      <MainHead title="الفعاليات" sub="لقاءات وورش وتجارب من أندية الجامعة"
+        search={{value:query, onChange:setQuery, placeholder:"البحث في الفعاليات"}}>
+        <div className="tabs" role="tablist" aria-label="الفترة">
+          <button type="button" className={`tab ${period === "upcoming" ? "active" : ""}`} role="tab" aria-selected={period === "upcoming"} onClick={() => setPeriod("upcoming")}>القادمة <span className="tab-count">{arabicDigits(upcoming.length)}</span></button>
+          <button type="button" className={`tab ${period === "past" ? "active" : ""}`} role="tab" aria-selected={period === "past"} onClick={() => setPeriod("past")}>السابقة <span className="tab-count">{arabicDigits(available.length - upcoming.length)}</span></button>
+        </div>
+      </MainHead>
       <div className="main-body">
-        {events.length === 0 ? (
+        <div className="event-toolbar">
+          <label className="select-field"><span>النادي المنظم</span><select aria-label="النادي المنظم" value={clubId} onChange={e => setClubId(e.target.value)}>
+            <option value="">جميع الأندية</option>
+            {clubs.map(club => <option key={club.id} value={club.id}>{club.name}</option>)}
+          </select></label>
+          <span className="result-count" role="status">{arabicDigits(shown.length)} فعالية</span>
+          {hasFilters && <button type="button" className="text-action clear-filters" onClick={clearFilters}><Icon name="x" size={15}/>مسح الفلاتر</button>}
+        </div>
+        {shown.length === 0 ? (
           <div className="empty">
             <Icon name="calendar" size={42} stroke={1.2}/>
-            <div className="title">لا فعاليات قادمة</div>
-            <div className="sub">ستظهر هنا أحدث فعاليات الأندية فور الإعلان عنها</div>
+            <div className="title">{hasFilters ? "لا توجد فعاليات تطابق بحثك" : period === "upcoming" ? "لا فعاليات قادمة حاليًا" : "لا فعاليات سابقة"}</div>
+            <div className="sub">{hasFilters ? "جرّب اسمًا آخر أو اختر جميع الأندية." : period === "upcoming" ? "تابع الإعلانات الجديدة، أو استعرض الفعاليات السابقة." : "ستظهر هنا الفعاليات بعد انتهائها."}</div>
+            {!hasFilters && period === "upcoming" && events.some(eventIsPast) && <button className="btn btn-ghost" type="button" onClick={() => setPeriod("past")}>عرض الفعاليات السابقة</button>}
           </div>
         ) : (
           <div className="event-grid">
-            {events.map(e => (
+            {shown.map(e => (
               <EventCard
                 key={e.id}
                 ev={e}

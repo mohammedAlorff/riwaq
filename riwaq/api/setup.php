@@ -5,20 +5,26 @@
  * كيف يعمل:
  *   ١. تأكد أن config.php موجود (انسخه من config.example.php)
  *   ٢. تأكد أن قاعدة البيانات موجودة (CREATE DATABASE) وأن المستخدم لديه صلاحية.
- *   ٣. شغّل هذا الملف من المتصفح:   http(s)://your.site/api/setup.php
- *      أو من الـ CLI:                php api/setup.php
+ *   ٣. شغّل هذا الملف من الـ CLI:    php api/setup.php
+ *      لا يمكن تشغيل التهيئة عبر الويب.
  *
  * يُنشئ:
  *   - الجداول من schema.sql
  *   - الـ ٨ أندية الافتراضية + المنشورات والفعاليات + السوشال (من seed.sql)
- *   - حساب الأدمن (admin / admin1234)
- *   - حسابات الرؤساء الـ ٨ (club_c1 ... club_c8 / كلمة المرور: riwaq2026)
+ *   - حساب الأدمن (admin / كلمة مرور عشوائية)
+ *   - حسابات الرؤساء الـ ٨ (club_c1 ... club_c8 / كلمات مرور عشوائية)
  *
  * بعد النجاح، يُعرض ملخص ثم يصبح الملف غير قابل لإعادة التشغيل (Safe guard).
  *
- * تنبيه: غيِّر كلمتي المرور الافتراضيتين فوراً بعد التركيب.
+ * تنبيه: غيِّر كلمات المرور التي ولّدها السكربت فوراً بعد التركيب.
  */
 declare(strict_types=1);
+
+// Database initialization is deliberately CLI-only, independent of web-server rules.
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
 
 require_once __DIR__ . '/auth_helpers.php';
 
@@ -27,9 +33,10 @@ function riwaq_sql_statements(string $sql): array {
     return array_values(array_filter(array_map('trim', explode(';', $sql)), fn($stmt) => $stmt !== ''));
 }
 
-// مانع إعادة التشغيل — يمكن للأدمن إعادة التهيئة بتمرير ?force=1
+// مانع إعادة التشغيل — إعادة التهيئة المدمّرة تحتاج RIWAQ_ALLOW_FORCE_SETUP=1.
 $db   = riwaq_db();
-$force = isset($_GET['force']) && $_GET['force'] === '1';
+$force = in_array('--force', $argv ?? [], true)
+    && getenv('RIWAQ_ALLOW_FORCE_SETUP') === '1';
 
 header('Content-Type: text/html; charset=utf-8');
 ?>
@@ -58,13 +65,13 @@ header('Content-Type: text/html; charset=utf-8');
 
 <?php
 try {
-    // ١) تحقق من وجود الجداول؛ لو موجودة ولم يضع ?force=1 — توقف
+    // ١) تحقق من وجود الجداول؛ لو موجودة ولم يُفعّل force — توقف
     $tables = $db->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
     $hasTables = !empty($tables);
     if ($hasTables && !$force) {
         echo '<div class="step">قاعدة البيانات تحتوي بالفعل على جداول: <code>' . htmlspecialchars(implode(', ', $tables)) . '</code></div>';
         echo '<p>للإعادة من الصفر (سيتم <span class="err">حذف كل البيانات</span>) اضغط:</p>';
-        echo '<p><a href="?force=1" style="color:#2d5a3d;font-weight:700">إعادة التهيئة بالكامل ⟲</a></p>';
+        echo '<p>إعادة التهيئة تتطلب الخيار <code>--force</code> ومتغير البيئة <code>RIWAQ_ALLOW_FORCE_SETUP=1</code> من سطر الأوامر.</p>';
         echo '</div></body></html>';
         exit;
     }

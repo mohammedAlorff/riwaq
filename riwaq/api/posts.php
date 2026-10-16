@@ -22,13 +22,13 @@ function listPosts(PDO $db, string $ip): void {
     $where  = [];
     $params = [];
 
-    $type = $_GET['type'] ?? null;
+    $type = riwaq_str($_GET['type'] ?? '', 20);
     if ($type && in_array($type, ['post', 'announcement', 'event'], true)) {
         $where[] = 'type = :type';
         $params[':type'] = $type;
     }
 
-    $clubId = $_GET['clubId'] ?? null;
+    $clubId = riwaq_str($_GET['clubId'] ?? '', 16);
     if ($clubId) {
         $where[] = 'club_id = :cid';
         $params[':cid'] = $clubId;
@@ -55,29 +55,39 @@ function createPost(PDO $db): void {
     $text  = riwaq_str($body['body']  ?? '', 5000);
     $tags  = $body['tags'] ?? [];
     $externalUrl = riwaq_str($body['externalUrl'] ?? '', 500);
+    $image = riwaq_str($body['image'] ?? '', 255);
 
     if (!in_array($type, ['post', 'announcement'], true)) {
         riwaq_error('invalid_type', 'النوع غير صحيح. للفعاليات استخدم endpoint منفصل.', 422);
     }
     if ($title === '') riwaq_error('missing_field', 'العنوان مطلوب.', 422);
     if ($text  === '') riwaq_error('missing_field', 'المحتوى مطلوب.', 422);
-    if (!is_array($tags)) $tags = [];
+    if (!is_array($tags) || count($tags) > 20) {
+        riwaq_error('invalid_tags', 'الوسوم يجب أن تكون قائمة لا تتجاوز ٢٠ وسمًا.', 422);
+    }
 
     // تنظيف الوسوم
     $tags = array_values(array_filter(array_map(function ($t) {
-        $t = trim((string)$t);
+        $t = riwaq_str($t, 60);
         if ($t === '') return '';
         return $t[0] === '#' ? $t : '#' . $t;
     }, $tags), fn($t) => $t !== ''));
 
     // تحقق من رابط التسجيل
-    if ($externalUrl !== '' && !filter_var($externalUrl, FILTER_VALIDATE_URL)) {
+    if ($externalUrl !== '' && !riwaq_is_http_url($externalUrl)) {
         riwaq_error('invalid_url', 'رابط التسجيل غير صالح.', 422);
+    }
+    if ($image !== '') {
+        $pattern = '~^' . preg_quote($u['clubId'], '~') . '_[0-9]{8}_[0-9]{6}_[a-f0-9]{8}\.(?:jpg|png|webp|gif)$~D';
+        if (!preg_match($pattern, $image)
+            || !is_file(rtrim(riwaq_config()['uploads_dir'], '/\\') . '/' . $image)) {
+            riwaq_error('invalid_image', 'اختر صورة مرفوعة بواسطة ناديك.', 422);
+        }
     }
 
     $stmt = $db->prepare(
-        "INSERT INTO posts (club_id, type, title, body, tags, external_url)
-         VALUES (:c, :ty, :ti, :b, :tg, :url)"
+        "INSERT INTO posts (club_id, type, title, body, tags, external_url, image)
+         VALUES (:c, :ty, :ti, :b, :tg, :url, :image)"
     );
     $stmt->execute([
         ':c'   => $u['clubId'],
@@ -86,6 +96,7 @@ function createPost(PDO $db): void {
         ':b'   => $text,
         ':tg'  => $tags ? json_encode($tags, JSON_UNESCAPED_UNICODE) : null,
         ':url' => $externalUrl ?: null,
+        ':image' => $image ?: null,
     ]);
     $id = (int)$db->lastInsertId();
 
@@ -101,8 +112,7 @@ function deletePost(PDO $db): void {
     riwaq_require_csrf();
     riwaq_rate_limit("write:user:{$u['id']}", (int)riwaq_config()['rate_limit']['write_per_user_per_min'], 60);
 
-    $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
-    if ($id <= 0) riwaq_error('missing_id', 'معرّف المنشور مطلوب.', 422);
+    $id = riwaq_positive_id($_GET['id'] ?? null);
 
     // يجب أن يكون المنشور لنفس النادي (إلا أن الأدمن يستطيع حذف أي منشور)
     $check = $db->prepare("SELECT club_id, linked_event_id FROM posts WHERE id = :id");

@@ -69,11 +69,148 @@ let SOCIALS = {};
 let MY_POSTS  = [];
 let MY_EVENTS = [];
 let currentTab = "post";  // post | announcement | event | socials
+let drafts = {};
+let publishing = false;
+
+function draftFor(type = currentTab) {
+  return drafts[type] || (drafts[type] = {values:{}, file:null, previewUrl:null, uploaded:null, imageVersion:0});
+}
+function clearDraft(type) {
+  const draft = drafts[type];
+  if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl);
+  delete drafts[type];
+}
+function clearDrafts() {
+  Object.keys(drafts).forEach(clearDraft);
+  currentTab = "post";
+}
+function captureDraft(type = currentTab) {
+  const draft = draftFor(type);
+  $$("#form-slot input:not([type=file]), #form-slot textarea, #form-slot select")
+    .forEach(input => { if (input.id) draft.values[input.id] = input.value; });
+  return draft;
+}
+function bindDraft(form) {
+  const draft = draftFor();
+  Object.entries(draft.values).forEach(([id,value]) => { const field = $("#" + id, form); if (field) field.value = value; });
+  form.addEventListener("input", () => captureDraft());
+  form.addEventListener("reset", event => {
+    event.preventDefault();
+    if (publishing) return;
+    clearDraft(currentTab);
+    renderForm();
+  });
+  setComposerBusy(publishing);
+}
+function setComposerBusy(value) {
+  publishing = value;
+  $$("#form-slot input, #form-slot textarea, #form-slot select, #form-slot button, #type-chips button, #logout")
+    .forEach(control => { control.disabled = value; });
+  if (drafts[currentTab]?.imagePending) {
+    if ($("#p-submit")) $("#p-submit").disabled = true;
+    if ($("#p-preview")) $("#p-preview").disabled = true;
+  }
+}
+function renderImageAttachment() {
+  const slot = $("#image-attachment");
+  if (!slot) return;
+  const draft = draftFor();
+  slot.innerHTML = draft.file ? `
+    <img src="${escape(draft.previewUrl)}" alt="الصورة المرفقة"/>
+    <span class="attachment-name">${escape(draft.file.name)}<small>${arabicDigits(Math.max(1, Math.round(draft.file.size / 1024)))} ك.ب</small></span>
+    <button type="button" class="tool-btn" id="image-remove" title="إزالة الصورة" aria-label="إزالة الصورة">${RiwaqUI.icon('Trash2')}</button>` : '';
+  slot.hidden = !draft.file;
+  if (draft.file) $("#image-remove").addEventListener("click", () => {
+    if (publishing) return;
+    draft.imageVersion++;
+    draft.imagePending = false;
+    URL.revokeObjectURL(draft.previewUrl);
+    draft.file = draft.previewUrl = draft.uploaded = null;
+    $("#p-image").value = '';
+    renderImageAttachment();
+    setComposerBusy(publishing);
+  });
+}
+async function choosePostImage(event) {
+  if (publishing) return;
+  const file = event.target.files[0];
+  if (!file) return;
+  const type = currentTab;
+  const draft = draftFor(type);
+  const version = ++draft.imageVersion;
+  draft.imagePending = false;
+  const error = $("#image-error");
+  error.textContent = '';
+  event.target.value = '';
+  setComposerBusy(publishing);
+  if (!['image/jpeg','image/png','image/webp','image/gif'].includes(file.type) || file.size > 4 * 1024 * 1024) {
+    error.textContent = 'اختر صورة PNG أو JPG أو WebP أو GIF بحجم لا يتجاوز ٤ م.ب.';
+    return;
+  }
+  const url = URL.createObjectURL(file);
+  draft.imagePending = true;
+  setComposerBusy(false);
+  try {
+    const probe = new Image();
+    probe.src = url;
+    await probe.decode();
+    if (drafts[type] !== draft || draft.imageVersion !== version || publishing) {
+      URL.revokeObjectURL(url);
+      return;
+    }
+    if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl);
+    draft.file = file;
+    draft.previewUrl = url;
+    draft.uploaded = null;
+    if (currentTab === type) renderImageAttachment();
+  } catch {
+    URL.revokeObjectURL(url);
+    if (drafts[type] === draft && draft.imageVersion === version && currentTab === type) {
+      $("#image-error").textContent = 'تعذّر قراءة الصورة. اختر ملفًا سليمًا.';
+    }
+  } finally {
+    if (draft.imageVersion === version) {
+      draft.imagePending = false;
+      if (drafts[type] === draft && currentTab === type) setComposerBusy(publishing);
+    }
+  }
+}
+function previewPost() {
+  const draft = captureDraft();
+  const isAnnouncement = currentTab === 'announcement';
+  const label = isAnnouncement ? 'إعلان' : 'منشور';
+  const dialog = document.createElement('dialog');
+  dialog.className = 'post-preview-dialog';
+  dialog.setAttribute('aria-labelledby', 'preview-title');
+  dialog.innerHTML = `<header class="preview-head"><h2 id="preview-title">معاينة المنشور</h2>
+    <button type="button" class="tool-btn" aria-label="إغلاق المعاينة" title="إغلاق المعاينة">${RiwaqUI.icon('X')}</button></header>
+    <article class="preview-content"><div class="preview-author"><span class="preview-club-icon" style="background:${escape(CLUB.color)}">${escape(CLUB.icon)}</span>
+    <span><strong>${escape(CLUB.name)}</strong><small>${escape(CLUB.college)}</small></span><span class="preview-type">${label}</span></div>
+    <h3>${escape(draft.values['p-title'] || 'عنوان المنشور')}</h3>
+    <p>${escape(draft.values['p-body'] || '')}</p>
+    ${draft.file ? `<img class="preview-image" src="${escape(draft.previewUrl)}" alt="الصورة المرفقة"/>` : ''}
+    <div class="preview-tags">${(draft.values['p-tags'] || '').split(/[،,]/).map(t => t.trim()).filter(Boolean).map(t => `<span>${escape(t.startsWith('#') ? t : '#'+t)}</span>`).join('')}</div>
+    ${draft.values['p-url'] ? `<div class="preview-link" dir="ltr">${escape(draft.values['p-url'])}</div>` : ''}</article>`;
+  const trigger = $("#p-preview");
+  const previousOverflow = document.body.style.overflow;
+  document.body.appendChild(dialog);
+  document.body.style.overflow = 'hidden';
+  dialog.addEventListener('close', () => {
+    document.body.style.overflow = previousOverflow;
+    dialog.remove();
+    trigger?.focus();
+  }, {once:true});
+  dialog.querySelector('button').addEventListener('click', () => dialog.close());
+  dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); });
+  dialog.showModal();
+}
 
 // ----------------------------------------------------------------
 // تسجيل الدخول
 // ----------------------------------------------------------------
 function renderLogin() {
+  clearDrafts();
+  SESSION = null;
   $("#root").innerHTML = `
     <div class="login-shell">
       <div class="login-card">
@@ -168,7 +305,9 @@ async function loadAndRenderDashboard() {
   `;
 
   try {
-    SESSION = await window.RiwaqAPI.session();
+    const session = await window.RiwaqAPI.session();
+    if (SESSION && SESSION.username !== session.username) clearDrafts();
+    SESSION = session;
     if (!SESSION.authenticated || SESSION.role !== "president") {
       return renderLogin();
     }
@@ -232,8 +371,8 @@ function renderDashboard() {
     <main class="page">
       <div class="page-head">
         <div>
-          <h1>لوحة التحكم</h1>
-          <div class="sub">أضف منشورات وإعلانات وفعاليات، وحدّث حسابات التواصل الاجتماعي للنادي — يظهر كل شيء للطلبة في رواق</div>
+          <h1>${escape(CLUB.name)}</h1>
+          <div class="sub">${escape(CLUB.college)} · مساحة النشر</div>
         </div>
       </div>
 
@@ -264,7 +403,7 @@ function renderDashboard() {
         <section class="card" id="composer-card">
           <div class="card-head">
             <h2>إضافة محتوى جديد</h2>
-            <span class="sub">يظهر فور النشر في منصة الطلبة</span>
+            <span class="sub composer-status">مسودة جديدة</span>
           </div>
 
           <div class="chips" id="type-chips">
@@ -280,7 +419,7 @@ function renderDashboard() {
         <section class="card" id="list-card">
           <div class="card-head">
             <h2>محتواي المنشور</h2>
-            <span class="sub">${arabicDigits(MY_POSTS.length + MY_EVENTS.length)} عنصر</span>
+            <span class="sub">${arabicDigits(MY_POSTS.length + MY_EVENTS.filter(ev => !MY_POSTS.some(p => p.linkedEventId === ev.id)).length)} عنصر</span>
           </div>
           <div id="list-slot"></div>
         </section>
@@ -289,12 +428,14 @@ function renderDashboard() {
   `;
 
   $("#logout").addEventListener("click", async () => {
-    try { await window.RiwaqAPI.logout(); } catch (e) {}
-    renderLogin();
+    try { await window.RiwaqAPI.logout(); renderLogin(); }
+    catch (error) { toast(error.message || "تعذّر تسجيل الخروج، حاول مرة أخرى", "danger"); }
   });
 
   $$("#type-chips .chip").forEach(chip => {
     chip.addEventListener("click", () => {
+      if (publishing || chip.dataset.type === currentTab) return;
+      captureDraft();
       currentTab = chip.dataset.type;
       $$("#type-chips .chip").forEach(c => c.classList.toggle("active", c === chip));
       renderForm();
@@ -365,11 +506,14 @@ function renderForm() {
       </form>
     `;
     $("#form-event").addEventListener("submit", onSubmitEvent);
+    bindDraft($("#form-event"));
     return;
   }
 
   if (currentTab === "socials") {
-    return renderSocialsForm();
+    renderSocialsForm();
+    bindDraft($("#form-socials"));
+    return;
   }
 
   const label = currentTab === "announcement" ? "إعلان" : "منشور";
@@ -381,7 +525,7 @@ function renderForm() {
       </div>
       <div class="field">
         <label for="p-body">المحتوى<span class="req">*</span></label>
-        <textarea id="p-body" required placeholder="اكتب محتوى ال${label} هنا — يصل لكل طلبة الجامعة"></textarea>
+        <textarea id="p-body" required maxlength="5000" placeholder="اكتب محتوى ال${label}"></textarea>
       </div>
       <div class="field">
         <label for="p-tags">الوسوم (اختياري)</label>
@@ -395,16 +539,28 @@ function renderForm() {
                style="direction:ltr;text-align:left"/>
         <span class="hint">يظهر للطلبة كزر — مفيد للتسجيل أو الاستبيانات</span>
       </div>
-      <div class="form-error" id="p-error"></div>
+      <div class="attachment-field">
+        <div class="attachment-toolbar"><button type="button" class="btn btn-ghost" id="image-choose">${RiwaqUI.icon('ImagePlus')}إرفاق صورة</button><span>PNG، JPG، WebP، GIF · ٤ م.ب</span></div>
+        <input id="p-image" type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden/>
+        <div id="image-attachment" class="image-attachment" hidden></div>
+        <p id="image-error" class="inline-error" role="alert"></p>
+      </div>
+      <div class="form-error" id="p-error" role="alert"></div>
       <div class="form-actions">
         <span class="muted">سيُنشر باسم <strong style="color:var(--ink-2)">${escape(CLUB.name)}</strong></span>
         <span class="spacer"></span>
-        <button type="reset" class="btn btn-ghost">مسح</button>
-        <button type="submit" class="btn btn-primary" id="p-submit">نشر ال${label}</button>
+        <button type="reset" class="tool-btn" aria-label="مسح المسودة" title="مسح المسودة">${RiwaqUI.icon('RotateCcw')}</button>
+        <button type="button" class="btn btn-ghost" id="p-preview">${RiwaqUI.icon('Eye')}معاينة</button>
+        <button type="submit" class="btn btn-primary" id="p-submit">${RiwaqUI.icon('Send')}نشر ال${label}</button>
       </div>
     </form>
   `;
   $("#form-post").addEventListener("submit", onSubmitPost);
+  bindDraft($("#form-post"));
+  $("#image-choose").addEventListener("click", () => $("#p-image").click());
+  $("#p-image").addEventListener("change", choosePostImage);
+  $("#p-preview").addEventListener("click", previewPost);
+  renderImageAttachment();
 }
 
 function renderSocialsForm() {
@@ -434,6 +590,8 @@ function renderSocialsForm() {
                 ${escape(p.label)}
               </div>
               <input
+                id="social-${p.key}"
+                aria-label="${escape(p.label)}"
                 type="text"
                 data-platform="${p.key}"
                 placeholder="${escape(p.placeholder)}"
@@ -461,6 +619,9 @@ function renderSocialsForm() {
 // ----------------------------------------------------------------
 async function onSubmitPost(e) {
   e.preventDefault();
+  if (publishing) return;
+  const type = currentTab;
+  const draft = captureDraft();
   const errEl = $("#p-error");
   const btn   = $("#p-submit");
   errEl.classList.remove("show");
@@ -476,25 +637,29 @@ async function onSubmitPost(e) {
     : [];
 
   try {
-    btn.disabled = true;
+    setComposerBusy(true);
     btn.textContent = "جارٍ النشر…";
+    if (draft.file && !draft.uploaded) draft.uploaded = await window.RiwaqAPI.upload.image(draft.file, 'post');
     await window.RiwaqAPI.posts.create({
-      type: currentTab,
+      type,
       title, body, tags,
       externalUrl: url || null,
+      image: draft.uploaded?.filename || null,
     });
-    toast(currentTab === "announcement" ? "تم نشر الإعلان" : "تم نشر المنشور");
+    clearDraft(type);
+    toast(type === "announcement" ? "تم نشر الإعلان" : "تم نشر المنشور");
     await loadAndRenderDashboard();
   } catch (err) {
     errEl.textContent = err.message || "تعذّر النشر";
     errEl.classList.add("show");
     btn.disabled = false;
-    btn.textContent = currentTab === "announcement" ? "نشر الإعلان" : "نشر المنشور";
-  }
+    btn.textContent = type === "announcement" ? "نشر الإعلان" : "نشر المنشور";
+  } finally { setComposerBusy(false); }
 }
 
 async function onSubmitEvent(e) {
   e.preventDefault();
+  if (publishing) return;
   const errEl = $("#ev-error");
   const btn   = $("#ev-submit");
   errEl.classList.remove("show");
@@ -510,7 +675,7 @@ async function onSubmitEvent(e) {
   if (!title || !date || !time || !loc || !Number.isFinite(spots) || spots <= 0) return;
 
   try {
-    btn.disabled = true;
+    setComposerBusy(true);
     btn.textContent = "جارٍ النشر…";
     await window.RiwaqAPI.events.create({
       title,
@@ -519,17 +684,19 @@ async function onSubmitEvent(e) {
       registrationUrl: reg || null,
     });
     toast("تم نشر الفعالية");
+    clearDraft('event');
     await loadAndRenderDashboard();
   } catch (err) {
     errEl.textContent = err.message || "تعذّر النشر";
     errEl.classList.add("show");
     btn.disabled = false;
     btn.textContent = "نشر الفعالية";
-  }
+  } finally { setComposerBusy(false); }
 }
 
 async function onSaveSocials(e) {
   e.preventDefault();
+  if (publishing) return;
   const errEl = $("#s-error");
   const btn   = $("#s-submit");
   errEl.classList.remove("show");
@@ -548,11 +715,12 @@ async function onSaveSocials(e) {
   });
 
   try {
-    btn.disabled = true;
+    setComposerBusy(true);
     btn.textContent = "جارٍ الحفظ…";
     SOCIALS = await window.RiwaqAPI.socials.update(map);
     toast("تم حفظ حسابات التواصل");
-    renderSocialsForm();
+    clearDraft('socials');
+    renderForm();
     btn.disabled = false;
     btn.textContent = "حفظ الحسابات";
   } catch (err) {
@@ -560,7 +728,7 @@ async function onSaveSocials(e) {
     errEl.classList.add("show");
     btn.disabled = false;
     btn.textContent = "حفظ الحسابات";
-  }
+  } finally { setComposerBusy(false); }
 }
 
 // ----------------------------------------------------------------
@@ -622,7 +790,7 @@ function renderList() {
             </div>
           </div>
           <div class="item-actions">
-            <button class="item-del" title="حذف" data-del-event="${escape(item.id)}">✕</button>
+            <button class="item-del" title="حذف الفعالية" aria-label="حذف الفعالية" data-del-event="${escape(item.id)}">✕</button>
           </div>
         </div>
       `;
@@ -646,7 +814,7 @@ function renderList() {
           </div>
         </div>
         <div class="item-actions">
-          <button class="item-del" title="حذف" data-del-post="${escape(item.id)}">✕</button>
+          <button class="item-del" title="حذف المنشور" aria-label="حذف المنشور" data-del-post="${escape(item.id)}">✕</button>
         </div>
       </div>
     `;

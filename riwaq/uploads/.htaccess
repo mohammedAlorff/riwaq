@@ -1,16 +1,19 @@
 # رواق — مجلد رفع الصور
 # اسمح فقط بتقديم الصور؛ لا تشغّل أي سكربتات.
 
-<FilesMatch "\.(php|phtml|phar|html|htm|cgi|pl|py|js)$">
+<FilesMatch "(?i)^(?!.*\.(?:jpg|jpeg|png|webp|gif)$)">
     Require all denied
 </FilesMatch>
 
 # اسمح بالصور المعروفة
-<FilesMatch "\.(jpg|jpeg|png|webp|gif)$">
+<FilesMatch "(?i)\.(jpg|jpeg|png|webp|gif)$">
+    SetHandler none
     Require all granted
 </FilesMatch>
 
 # عطّل تنفيذ السكربتات في هذا المجلد
-php_flag engine off
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
 Options -ExecCGI -Indexes
 AddType text/plain .php .phtml .phar

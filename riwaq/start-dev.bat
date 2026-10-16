@@ -6,11 +6,13 @@ set "LOCAL_PHP_EXT=%ROOT%..\.tools\php\ext"
 
 if exist "%LOCAL_PHP%" (
   set "PHP_EXE=%LOCAL_PHP%"
-  set "PHP_ARGS=-d extension_dir=%LOCAL_PHP_EXT% -d extension=mbstring -d extension=fileinfo -d extension=openssl -d extension=pdo_mysql"
+  set PHP_ARGS=-d "extension_dir=%LOCAL_PHP_EXT%" -d extension=mbstring -d extension=fileinfo -d extension=openssl -d extension=pdo_mysql
 ) else (
   set "PHP_EXE=php"
   set "PHP_ARGS="
 )
+
+if "%~1"=="--check" goto check_php
 
 echo ============================================
 echo   Riwaq - Dev Server
@@ -31,7 +33,15 @@ echo.
 REM Open browser after 2 seconds
 start "" /B cmd /C "timeout /t 2 /nobreak >nul && start http://localhost:8000/%%D8%%B1%%D9%%88%%D8%%A7%%D9%%82.html"
 
-REM Start PHP built-in server
-"%PHP_EXE%" %PHP_ARGS% -S 0.0.0.0:8000
+REM Load ignored local credentials; router.php denies direct access.
+if exist "%ROOT%api\config.local.php" set "RIWAQ_CONFIG_PATH=%ROOT%api\config.local.php"
+
+REM Start PHP built-in server on this computer only.
+"%PHP_EXE%" %PHP_ARGS% -S 127.0.0.1:8000 -t "%ROOT%." "%ROOT%router.php"
 
 pause
+exit /b
+
+:check_php
+"%PHP_EXE%" %PHP_ARGS% -m
+exit /b

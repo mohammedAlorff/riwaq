@@ -9,6 +9,14 @@
 
 declare(strict_types=1);
 
+if (PHP_SAPI !== 'cli') {
+    ini_set('display_errors', '0');
+    set_exception_handler(static function (Throwable $error): void {
+        error_log('Riwaq API: ' . get_class($error) . ' at ' . basename($error->getFile()) . ':' . $error->getLine());
+        riwaq_error('internal_error', 'حدث خطأ داخلي. حاول مرة أخرى لاحقًا.', 500);
+    });
+}
+
 function riwaq_send_json($data, int $status = 200): void {
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
@@ -45,24 +53,44 @@ function riwaq_require_method(string ...$allowed): void {
 }
 
 function riwaq_read_json(): array {
-    $raw = file_get_contents('php://input');
+    $contentType = strtolower(trim(explode(';', $_SERVER['CONTENT_TYPE'] ?? '')[0]));
+    if ($contentType !== 'application/json') {
+        riwaq_error('unsupported_media_type', 'يجب إرسال البيانات بصيغة JSON.', 415);
+    }
+    $raw = file_get_contents('php://input', false, null, 0, 65537);
+    if ($raw !== false && strlen($raw) > 65536) {
+        riwaq_error('body_too_large', 'حجم البيانات يتجاوز الحد المسموح.', 413);
+    }
     if ($raw === '' || $raw === false) return [];
     $data = json_decode($raw, true);
-    if (!is_array($data)) {
+    if (!is_array($data) || !str_starts_with(ltrim($raw), '{')) {
         riwaq_error('invalid_json', 'الجسم ليس JSON صالحًا.', 400);
     }
     return $data;
 }
 
 function riwaq_client_ip(): string {
-    $candidates = ['HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP', 'REMOTE_ADDR'];
-    foreach ($candidates as $k) {
-        if (!empty($_SERVER[$k])) {
-            $ip = trim(explode(',', $_SERVER[$k])[0]);
-            if (filter_var($ip, FILTER_VALIDATE_IP)) return $ip;
-        }
+    $peer = $_SERVER['REMOTE_ADDR'] ?? '';
+    if (!filter_var($peer, FILTER_VALIDATE_IP)) return '';
+    if (!riwaq_is_trusted_proxy($peer)) return $peer;
+    // Walk from the directly connected proxy, never trust a caller-supplied leftmost IP.
+    $chain = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '');
+    for ($i = count($chain) - 1; $i >= 0 && riwaq_is_trusted_proxy($peer); $i--) {
+        $candidate = trim($chain[$i]);
+        if (!filter_var($candidate, FILTER_VALIDATE_IP)) break;
+        $peer = $candidate;
     }
-    return '';
+    return $peer;
+}
+
+function riwaq_is_trusted_proxy(string $ip): bool {
+    return in_array($ip, riwaq_config()['trusted_proxies'] ?? [], true);
+}
+
+function riwaq_is_https(): bool {
+    if (!empty($_SERVER['HTTPS']) && strtolower((string)$_SERVER['HTTPS']) !== 'off') return true;
+    return riwaq_is_trusted_proxy($_SERVER['REMOTE_ADDR'] ?? '')
+        && strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https';
 }
 
 function riwaq_handle_cors(): void {
@@ -87,11 +115,38 @@ function riwaq_handle_cors(): void {
 }
 
 // نص آمن (يحذف whitespace، يقصر الطول)
-function riwaq_str(?string $value, int $maxLen = 1000): string {
+function riwaq_str($value, int $maxLen = 1000): string {
     if ($value === null) return '';
+    if (!is_string($value)) {
+        riwaq_error('invalid_field', 'قيمة الحقل النصي غير صحيحة.', 422);
+    }
     $v = trim($value);
     if (mb_strlen($v) > $maxLen) $v = mb_substr($v, 0, $maxLen);
     return $v;
+}
+
+function riwaq_is_http_url(string $url): bool {
+    if (preg_match('/[\x00-\x20\x7f\\\\]/', $url) || !filter_var($url, FILTER_VALIDATE_URL)) return false;
+    $parts = parse_url($url);
+    return is_array($parts)
+        && in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true)
+        && !empty($parts['host']);
+}
+
+function riwaq_password_input($value): string {
+    if (!is_string($value) || str_contains($value, "\0")) {
+        riwaq_error('invalid_password', 'صيغة كلمة المرور غير صحيحة.', 422);
+    }
+    return $value;
+}
+
+function riwaq_positive_id($value): int {
+    if ((!is_string($value) && !is_int($value))
+        || !ctype_digit((string)$value)
+        || !filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]])) {
+        riwaq_error('invalid_id', 'المعرّف يجب أن يكون عددًا صحيحًا موجبًا.', 422);
+    }
+    return (int)$value;
 }
 
 function riwaq_require_field($value, string $name): void {
@@ -155,7 +210,7 @@ function riwaq_format_club(array $row): array {
 function riwaq_make_cover(string $color): string {
     $hex = ltrim($color, '#');
     if (!preg_match('/^[0-9a-fA-F]{6}$/', $hex)) {
-        return "linear-gradient(135deg, $color 0%, $color 100%)";
+        return 'linear-gradient(135deg, #2d5a3d 0%, #5f8b6b 100%)';
     }
     $r = hexdec(substr($hex, 0, 2));
     $g = hexdec(substr($hex, 2, 2));

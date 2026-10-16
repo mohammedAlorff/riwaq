@@ -1,1 +1,7 @@
 .tools/
+.playwright-cli/
+output/
+review-work/
+ey-company.ttl
+riwaq/assets/campus-original.png
+riwaq/assets/campus-original.webp

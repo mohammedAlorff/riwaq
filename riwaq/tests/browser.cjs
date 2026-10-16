@@ -1,0 +1,81 @@
+const assert = require('node:assert/strict');
+const path = require('node:path');
+module.exports = async function({base,adminLogin,presidentLogin}) {
+  const {chromium}=require('playwright');
+  const browser=await chromium.launch({headless:true,channel:process.env.RIWAQ_TEST_BROWSER_CHANNEL || undefined});
+  const errors=[];
+  const watch=page=>page.on('pageerror',e=>errors.push(e.message));
+  try {
+    const adminContext=await browser.newContext({viewport:{width:1440,height:1000}});
+    const admin=await adminContext.newPage(); watch(admin);
+    await admin.goto(base+'/admin');
+    await admin.locator('#username').fill(adminLogin.username);
+    await admin.locator('#password').fill(adminLogin.password);
+    await admin.locator('#login-btn').click();
+    await admin.locator('#new-club-btn').waitFor();
+    await admin.locator('#new-club-btn').click();
+    await admin.locator('#club-save').click();
+    assert.equal(await admin.locator('#club-form').count(),1);
+    assert.equal(await admin.locator('#club-name').evaluate(e=>e.validity.valueMissing),true);
+    await admin.locator('#club-name').fill('Browser test club');
+    await admin.locator('#club-college').fill('Browser college');
+    await admin.locator('#club-desc').fill('Browser test description');
+    await admin.locator('#club-icon').fill('B');
+    await admin.locator('#club-username').fill('browser_president');
+    await admin.locator('#club-password').fill('Browser-test-password');
+    await admin.locator('#club-password').press('Enter');
+    await admin.locator('#club-form').waitFor({state:'detached'});
+    await admin.getByText('Browser test club',{exact:true}).waitFor();
+    await admin.locator('[data-edit-pwd="browser_president"]').click();
+    await admin.locator('#new-pwd').fill('Updated-browser-password');
+    await admin.locator('#new-pwd').press('Enter');
+    await admin.locator('#password-form').waitFor({state:'detached'});
+    const presidentsContext=await browser.newContext({viewport:{width:1440,height:1000}});
+    const president=await presidentsContext.newPage(); watch(president);
+    await president.goto(base+'/presidents');
+    await president.locator('#username').fill(presidentLogin.username);
+    await president.locator('#password').fill(presidentLogin.password);
+    await president.locator('#login-btn').click();
+    await president.locator('#p-title').fill('Browser published post');
+    await president.locator('#p-body').fill('Post created through the president interface.');
+    await president.locator('#p-submit').click();
+    await president.locator('.item-title').filter({hasText:'Browser published post'}).waitFor();
+    const publicContext=await browser.newContext({viewport:{width:1440,height:1000}});
+    const student=await publicContext.newPage(); watch(student);
+    const studentUrl=base+'/'+encodeURIComponent('رواق.html');
+    await student.goto(studentUrl);
+    await student.getByText('Browser published post',{exact:true}).waitFor();
+    await student.goto(studentUrl+'#clubs/%E0%A4%A');
+    await student.locator('.app').waitFor();
+    await student.goto(studentUrl+'#feed?tag='+encodeURIComponent('#A&B'));
+    await student.locator('.app').waitFor();
+    assert.equal(await student.locator('.filter-bar-tag').textContent(),'#A&B');
+    await student.getByRole('button',{name:'إزالة الفلتر'}).click();
+    await student.getByText('Browser published post',{exact:true}).waitFor();
+    const screenshots=process.env.RIWAQ_TEST_SCREENSHOTS;
+    for(const [name,page] of [['students',student],['admin',admin],['presidents',president]]) {
+      for(const width of [1440,390]) {
+        await page.setViewportSize({width,height:1000});
+        assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),`${name} overflows at ${width}px`);
+        if(screenshots) await page.screenshot({path:path.join(screenshots,`${name}-${width}.png`),fullPage:true});
+      }
+    }
+    await publicContext.route('**/api/*.php',route=>route.abort());
+    await student.goto(studentUrl);
+    await student.getByText('تعذّر تحميل البيانات',{exact:true}).waitFor();
+    assert.equal(await student.evaluate(()=>window.RiwaqAPI.isDemo),false);
+    await publicContext.unroute('**/api/*.php');
+    await student.getByRole('button',{name:'إعادة المحاولة'}).click();
+    await student.getByText('Browser published post',{exact:true}).waitFor();
+    await adminContext.route('**/api/logout.php',route=>route.abort());
+    await admin.locator('#logout').click();
+    await admin.locator('#toast.show').waitFor();
+    assert.equal(await admin.locator('#logout').count(),1);
+    await adminContext.unroute('**/api/logout.php');
+    await admin.locator('#logout').click();
+    await admin.locator('#login-btn').waitFor();
+    await president.locator('#logout').click();
+    await president.locator('#login-btn').waitFor();
+    assert.deepEqual(errors,[]);
+  } finally { await browser.close(); }
+};

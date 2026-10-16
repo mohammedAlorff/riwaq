@@ -19,7 +19,7 @@ switch ($method) {
 function listEvents(PDO $db, string $ip): void {
     riwaq_rate_limit("read:$ip", (int)riwaq_config()['rate_limit']['read_per_ip_per_min'], 60);
 
-    $clubId = $_GET['clubId'] ?? null;
+    $clubId = riwaq_str($_GET['clubId'] ?? '', 16);
     $sql    = "SELECT * FROM events";
     $params = [];
     if ($clubId) {
@@ -42,27 +42,29 @@ function createEvent(PDO $db): void {
     $body  = riwaq_read_json();
     $title = riwaq_str($body['title'] ?? '', 200);
     $desc  = riwaq_str($body['description'] ?? '', 5000);
-    $date  = riwaq_str($body['date'] ?? '', 10);
-    $time  = riwaq_str($body['time'] ?? '', 8);
+    $date  = riwaq_str($body['date'] ?? '', 100);
+    $time  = riwaq_str($body['time'] ?? '', 100);
     $loc   = riwaq_str($body['location'] ?? '', 200);
-    $spots = (int)($body['spots'] ?? 0);
+    $spots = $body['spots'] ?? 0;
     $regUrl = riwaq_str($body['registrationUrl'] ?? '', 500);
 
     if ($title === '' || $loc === '' || $date === '' || $time === '') {
         riwaq_error('missing_field', 'العنوان والمكان والتاريخ والوقت مطلوبة.', 422);
     }
-    if ($spots <= 0 || $spots > 100000) {
+    if (!is_int($spots) || $spots <= 0 || $spots > 100000) {
         riwaq_error('invalid_spots', 'عدد المقاعد يجب أن يكون بين ١ و١٠٠٠٠٠.', 422);
     }
-    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)
+        || (int)substr($date, 0, 4) < 1000
+        || !checkdate((int)substr($date, 5, 2), (int)substr($date, 8, 2), (int)substr($date, 0, 4))) {
         riwaq_error('invalid_date', 'صيغة التاريخ غير صحيحة (YYYY-MM-DD).', 422);
     }
-    if (!preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $time)) {
+    if (!preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/', $time)) {
         riwaq_error('invalid_time', 'صيغة الوقت غير صحيحة (HH:MM).', 422);
     }
     if (strlen($time) === 5) $time .= ':00';
 
-    if ($regUrl !== '' && !filter_var($regUrl, FILTER_VALIDATE_URL)) {
+    if ($regUrl !== '' && !riwaq_is_http_url($regUrl)) {
         riwaq_error('invalid_url', 'رابط التسجيل غير صالح.', 422);
     }
 
@@ -120,8 +122,7 @@ function deleteEvent(PDO $db): void {
     riwaq_require_csrf();
     riwaq_rate_limit("write:user:{$u['id']}", (int)riwaq_config()['rate_limit']['write_per_user_per_min'], 60);
 
-    $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
-    if ($id <= 0) riwaq_error('missing_id', 'معرّف الفعالية مطلوب.', 422);
+    $id = riwaq_positive_id($_GET['id'] ?? null);
 
     $check = $db->prepare("SELECT club_id FROM events WHERE id = :id");
     $check->execute([':id' => $id]);

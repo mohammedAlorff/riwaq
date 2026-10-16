@@ -24,6 +24,11 @@ return [
     // مثال للتطوير المحلي: 'http://localhost:5500'
     'cors_origin' => '',
 
+    // Exact IPs of proxies you control. Forwarded headers are ignored otherwise.
+    'trusted_proxies' => [],
+    // null detects HTTPS; set true for an HTTPS-only deployment.
+    'cookie_secure' => null,
+
     // طول الجلسة بالثواني (افتراضي ٨ ساعات)
     'session_ttl_seconds' => 28800,
 

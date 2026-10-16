@@ -1,405 +1,102 @@
-/* Shared components — public student portal (read-only) */
-
-// =====================
-// Utilities
-// =====================
-function arabicDigits(str) {
-  const map = { "0":"٠","1":"١","2":"٢","3":"٣","4":"٤","5":"٥","6":"٦","7":"٧","8":"٨","9":"٩" };
-  return String(str).replace(/[0-9]/g, d => map[d]);
+/* Shared student interface. Icons come from bundled Lucide. */
+function arabicDigits(value) {
+  return String(value).replace(/[0-9]/g, n => '٠١٢٣٤٥٦٧٨٩'[n]);
 }
-
-// تحويل التاريخ القادم من MySQL (`YYYY-MM-DD HH:MM:SS`) إلى وقت نسبي بالعربية
 function relativeTimeAr(input) {
-  if (!input) return "";
-  let ts;
-  if (typeof input === "number") {
-    ts = input;
-  } else if (typeof input === "string") {
-    // 'YYYY-MM-DD HH:MM:SS' (توقيت الخادم) — تعامله كـ UTC مرنة
-    const iso = input.includes("T") ? input : input.replace(" ", "T");
-    const d = new Date(iso);
-    ts = d.getTime();
-  } else {
-    return "";
-  }
-  if (!isFinite(ts)) return "";
-
-  const diff = Math.max(0, Date.now() - ts);
-  const min  = Math.floor(diff / 60000);
-  const hour = Math.floor(min / 60);
-  const day  = Math.floor(hour / 24);
-  if (min < 1)   return "الآن";
-  if (min === 1) return "قبل دقيقة";
-  if (min === 2) return "قبل دقيقتين";
-  if (min < 11)  return `قبل ${arabicDigits(min)} دقائق`;
-  if (min < 60)  return `قبل ${arabicDigits(min)} دقيقة`;
-  if (hour === 1) return "قبل ساعة";
-  if (hour === 2) return "قبل ساعتين";
-  if (hour < 11)  return `قبل ${arabicDigits(hour)} ساعات`;
-  if (hour < 24)  return `قبل ${arabicDigits(hour)} ساعة`;
-  if (day === 1) return "أمس";
-  if (day === 2) return "قبل يومين";
-  if (day < 11)  return `قبل ${arabicDigits(day)} أيام`;
-  if (day < 30)  return `قبل ${arabicDigits(day)} يوماً`;
-  const month = Math.floor(day / 30);
-  if (month === 1) return "قبل شهر";
-  if (month < 12)  return `قبل ${arabicDigits(month)} أشهر`;
-  return `قبل ${arabicDigits(Math.floor(month / 12))} سنة`;
+  if (!input) return '';
+  const date = new Date(typeof input === 'string' ? input.replace(' ', 'T') : input);
+  if (!Number.isFinite(date.getTime())) return '';
+  const days = Math.floor((Date.now() - date.getTime()) / 86400000);
+  if (days > 6) return date.toLocaleDateString('ar-SA', {calendar:'gregory', day:'numeric', month:'short'});
+  const minutes = Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000));
+  if (minutes < 1) return 'الآن';
+  return new Intl.RelativeTimeFormat('ar', {numeric:'auto'}).format(
+    days > 0 ? -days : minutes >= 60 ? -Math.floor(minutes / 60) : -minutes,
+    days > 0 ? 'day' : minutes >= 60 ? 'hour' : 'minute');
 }
-
-// =====================
-// Avatar
-// =====================
-function Avatar({ size = "md", color, children, image, alt, style = {} }) {
-  if (image) {
-    return (
-      <div className={`avatar ${size} avatar-image`} style={style}>
-        <img src={image} alt={alt || ""} loading="lazy"/>
-      </div>
-    );
-  }
-  return (
-    <div className={`avatar ${size}`} style={{ background: color || "#3a5a40", ...style }}>
-      {children}
+function Icon({name, size=20, stroke=1.7}) {
+  const names = {home:'House', compass:'Compass', calendar:'CalendarDays', search:'Search', users:'Users',
+    pin:'MapPin', clock:'Clock3', check:'Check', x:'X', 'arrow-right':'ArrowRight', 'arrow-left':'ArrowLeft',
+    external:'ArrowUpLeft', image:'Image', refresh:'RefreshCw', grid:'LayoutGrid', shield:'ShieldCheck',
+    pen:'PenLine', logout:'LogOut', chevron:'ChevronLeft', megaphone:'Megaphone', link:'Link',
+    instagram:'Instagram', twitter:'AtSign', snapchat:'MessageCircle', tiktok:'Music2', telegram:'Send', spark:'Sparkles'};
+  const node = window.lucide.icons[names[name] || 'Circle'];
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {node[2].map(([tag, attrs], i) => React.createElement(tag, {...attrs, key:i}))}
+  </svg>;
+}
+function Avatar({size='md', color, children, image, alt=''}) {
+  const [failed, setFailed] = React.useState(false);
+  React.useEffect(() => setFailed(false), [image]);
+  return <span className={'avatar '+size} style={{background:color || '#17644b'}}>
+    {image && !failed ? <img src={image} alt={alt} loading="lazy" onError={() => setFailed(true)}/> : children}
+  </span>;
+}
+function Sidebar({route}) {
+  const {clubs, events} = React.useContext(window.RiwaqData);
+  return <aside className="sidebar" aria-label="القائمة الرئيسية">
+    <a className="brand" href="#feed" aria-label="رواق، الرئيسية"><span className="brand-mark">ر</span><span><strong className="brand-name">رواق</strong><span className="brand-sub">مجتمع الأندية الجامعية</span></span></a>
+    <div className="nav-section">مساحتك الجامعية</div>
+    <nav className="nav">
+      {[['feed','الرئيسية','home',null],['clubs','الأندية','compass',clubs.length],['events','الفعاليات','calendar',events.length]].map(([id,label,icon,count]) =>
+        <a key={id} href={'#'+id} className={'nav-item '+(route===id?'active':'')} aria-current={route===id?'page':undefined}>
+          <Icon name={icon}/><span>{label}</span>{count !== null && <span className="nav-count">{arabicDigits(count)}</span>}
+        </a>)}
+    </nav>
+    <div className="sidebar-bottom">
+      <div className="campus-seal"><Icon name="spark" size={22}/><p>شغفك له مكان.<br/><strong>وأثرُك يبدأ هنا.</strong></p></div>
+      <div className="portal-links"><a href="presidents/"><Icon name="pen" size={17}/>بوابة رئيس النادي<Icon name="external" size={14}/></a><a href="admin/"><Icon name="shield" size={17}/>إدارة رواق<Icon name="external" size={14}/></a></div>
+      <div className="sidebar-foot-note">جامعة الإمام محمد بن سعود<br/>الإسلامية</div>
     </div>
-  );
+  </aside>;
 }
-
-// =====================
-// Icons (line, monochrome)
-// =====================
-const Icon = ({ name, size = 20, stroke = 1.7 }) => {
-  const props = {
-    width: size, height: size, viewBox: "0 0 24 24",
-    fill: "none", stroke: "currentColor", strokeWidth: stroke,
-    strokeLinecap: "round", strokeLinejoin: "round",
-    "aria-hidden": "true", focusable: "false"
-  };
-  switch (name) {
-    case "home":     return <svg {...props}><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/></svg>;
-    case "compass":  return <svg {...props}><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5.5-5.5 2 2-5.5 5.5-2z"/></svg>;
-    case "calendar": return <svg {...props}><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>;
-    case "search":   return <svg {...props}><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>;
-    case "users":    return <svg {...props}><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3 3-5 6-5s6 2 6 5"/><circle cx="17" cy="9" r="2.5"/><path d="M21 19c0-2.5-1.5-3.5-4-3.5"/></svg>;
-    case "pin":      return <svg {...props}><path d="M12 21s-6-6-6-11a6 6 0 1 1 12 0c0 5-6 11-6 11Z"/><circle cx="12" cy="10" r="2.5"/></svg>;
-    case "clock":    return <svg {...props}><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>;
-    case "check":    return <svg {...props}><path d="m5 12 5 5L20 7"/></svg>;
-    case "x":        return <svg {...props}><path d="M6 6 18 18M18 6 6 18"/></svg>;
-    case "arrow-right": return <svg {...props}><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>;
-    case "image":    return <svg {...props}><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m4 19 6-6 5 5 3-3 2 2"/></svg>;
-    case "external": return <svg {...props}><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>;
-    case "twitter":  return <svg {...props} fill="currentColor" stroke="none">
-        <path d="M18.244 2H21l-6.49 7.41L22.5 22h-6.83l-5.36-7-6.13 7H1.5l6.94-7.94L1.5 2h6.99l4.84 6.4L18.244 2Zm-2.39 18h1.88L8.27 4h-2L15.854 20Z"/>
-      </svg>;
-    case "instagram": return <svg {...props}>
-        <rect x="3" y="3" width="18" height="18" rx="5"/>
-        <circle cx="12" cy="12" r="4"/>
-        <circle cx="17.5" cy="6.5" r="0.8" fill="currentColor"/>
-      </svg>;
-    case "snapchat": return <svg {...props}>
-        <path d="M12 3c-3 0-5 2-5 5v2c0 1-1 2-2 2.5l-1 .5c-.5.2-.5.7 0 1l1.5.7c.8.3 1.2.9 1.4 1.6.2.7.7.9 1.3.6.6-.3 1.4 0 1.9.6.6.7 1.7 1.5 3 1.5s2.4-.8 3-1.5c.5-.6 1.3-.9 1.9-.6.6.3 1.1.1 1.3-.6.2-.7.6-1.3 1.4-1.6l1.5-.7c.5-.3.5-.8 0-1l-1-.5c-1-.5-2-1.5-2-2.5V8c0-3-2-5-5-5Z"/>
-      </svg>;
-    case "tiktok": return <svg {...props}>
-        <path d="M14 3v10.5a3.5 3.5 0 1 1-3.5-3.5"/>
-        <path d="M14 3c.5 2.5 2.5 4 5 4.2"/>
-      </svg>;
-    case "telegram": return <svg {...props}>
-        <path d="M22 3 2 11l6 2 2 7 4-4 6 4 2-17Z"/>
-        <path d="m8 13 10-6-8 8"/>
-      </svg>;
-    default: return null;
-  }
-};
-
-// =====================
-// Sidebar
-// =====================
-function Sidebar({ route, setRoute }) {
-  const navItems = [
-    { id: "feed",   label: "الرئيسية",  icon: "home" },
-    { id: "clubs",  label: "الأندية",   icon: "compass" },
-    { id: "events", label: "الفعاليات", icon: "calendar" }
-  ];
-
-  return (
-    <aside className="sidebar" aria-label="القائمة الجانبية">
-      <div className="brand">
-        <div className="brand-mark" aria-hidden="true">ر</div>
-        <div>
-          <div className="brand-name">رواق</div>
-          <div className="brand-sub">جامعة الإمام محمد بن سعود</div>
-        </div>
-      </div>
-
-      <nav className="nav" aria-label="التنقل الرئيسي">
-        {navItems.map(n => (
-          <button
-            key={n.id}
-            type="button"
-            className={`nav-item ${route === n.id ? "active" : ""}`}
-            onClick={() => setRoute(n.id)}
-            aria-current={route === n.id ? "page" : undefined}
-            aria-label={n.label}
-          >
-            <span className="nav-icon"><Icon name={n.icon} size={20}/></span>
-            <span className="nav-label">{n.label}</span>
-          </button>
-        ))}
-      </nav>
-
-      <div className="sidebar-foot">
-        <div className="sidebar-foot-note">
-          بوابة استعراض رسمية لأندية جامعة الإمام محمد بن سعود الإسلامية.
-          للانضمام لنادٍ، تواصل مع إدارة الأنشطة الطلابية.
-        </div>
-      </div>
-    </aside>
-  );
+function MainHead({title, sub, search, children}) {
+  return <header className="main-head"><div className="heading-row"><div><div className="eyebrow">رواق / مجتمع الجامعة</div><h1>{title}</h1>{sub && <p className="sub">{sub}</p>}</div>
+    {search && <label className="search"><Icon name="search" size={18}/><input type="search" aria-label={search.placeholder || 'البحث في رواق'} placeholder={search.placeholder || 'ابحث عن شيء يلهمك…'} value={search.value} onChange={e=>search.onChange(e.target.value)}/></label>}
+    </div>{children}</header>;
 }
-
-// =====================
-// Main head — optional controlled search via props
-// =====================
-function MainHead({ title, sub, search, children }) {
-  return (
-    <div className="main-head">
-      <div className="main-head-titles">
-        <h1>{title}</h1>
-        {sub ? <div className="sub">{sub}</div> : null}
-      </div>
-      {search ? (
-        <label className="search" aria-label="البحث في رواق">
-          <Icon name="search" size={16}/>
-          <input
-            type="search"
-            placeholder={search.placeholder || "ابحث في رواق…"}
-            value={search.value}
-            onChange={e => search.onChange(e.target.value)}
-          />
-        </label>
-      ) : null}
-      {children}
-    </div>
-  );
-}
-
-// =====================
-// Post card — read-only
-// =====================
-function PostCard({ post, club }) {
+function PostCard({post, club}) {
+  const [expanded, setExpanded] = React.useState(false);
+  const [failed, setFailed] = React.useState(false);
   if (!club) return null;
-
-  const typeLabel = { announcement: "إعلان", event: "فعالية", post: "منشور" }[post.type] || "منشور";
-  const timeText  = relativeTimeAr(post.createdAt || post._createdAt) || post.time || "";
-  const imageSrc  = post.image && post.image.startsWith("http")
-    ? post.image
-    : (post.image ? "uploads/" + post.image.replace(/^uploads\//, "") : null);
-
-  return (
-    <article className="post">
-      <div className="post-head">
-        <Avatar size="md" color={club.color} image={club.image} alt={club.name}>{club.icon}</Avatar>
-        <div className="post-author">
-          <div className="post-author-name">
-            {club.name}
-            <span className="verified" title="نادي معتمد" aria-label="نادي معتمد">
-              <Icon name="check" size={9} stroke={3}/>
-            </span>
-          </div>
-          <div className="post-meta">
-            <span>{club.college}</span>
-            <span className="dot" aria-hidden="true"></span>
-            <span>{timeText}</span>
-          </div>
-        </div>
-        <span className={`post-type-pill ${post.type}`}>{typeLabel}</span>
-      </div>
-
-      <div className="post-body">
-        <div className="post-title">{post.title}</div>
-        <div className="post-text">{post.body}</div>
-        {post.tags && post.tags.length > 0 && (
-          <div className="post-tags">
-            {post.tags.map(t => <span key={t} className="post-tag">{t}</span>)}
-          </div>
-        )}
-        {post.externalUrl && (
-          <a
-            className="post-external"
-            href={post.externalUrl}
-            target="_blank"
-            rel="noopener noreferrer nofollow"
-          >
-            <Icon name="external" size={14}/>
-            <span>{post.type === "event" ? "سجِّل في الفعالية" : "افتح الرابط"}</span>
-          </a>
-        )}
-      </div>
-
-      {imageSrc && (
-        <div className="post-image">
-          <img src={imageSrc} alt={post.title || "صورة المنشور"} loading="lazy"/>
-        </div>
-      )}
-      {!imageSrc && post.image && (
-        <div className="post-image" role="img" aria-label="صورة المنشور">
-          <div className="post-image-bg" aria-hidden="true"></div>
-          <div className="post-image-icon" aria-hidden="true">
-            <Icon name="image" size={36} stroke={1.3}/>
-          </div>
-        </div>
-      )}
-    </article>
-  );
-}
-
-// =====================
-// Right rail
-// =====================
-function FeedRail({ onOpenClub, onOpenEvents, onSelectTag }) {
-  const { clubs, events, trendingTags } = React.useContext(window.RiwaqData);
-
-  return (
-    <aside className="rail" aria-label="معلومات جانبية">
-      <div className="rail-card">
-        <div className="rail-title">
-          <span>فعاليات قادمة</span>
-          <button type="button" className="see-all" onClick={onOpenEvents}>عرض الكل</button>
-        </div>
-        {events.length === 0 && (
-          <div className="rail-empty">لا فعاليات قادمة</div>
-        )}
-        {events.slice(0, 4).map(e => {
-          const parts = (e.date || "").split("-");
-          const day   = parts[2] ? arabicDigits(parts[2]) : "";
-          const monthNames = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
-          const monthIdx = parts[1] ? parseInt(parts[1], 10) - 1 : -1;
-          const month = monthIdx >= 0 && monthNames[monthIdx] ? monthNames[monthIdx] : (parts[1] ? arabicDigits(parts[1]) : "");
-          const time  = (e.time || "").slice(0, 5);
-          return (
-            <button
-              key={e.id}
-              type="button"
-              className="event-row"
-              onClick={onOpenEvents}
-              aria-label={`فعالية: ${e.title}`}
-            >
-              <div className="event-date" aria-hidden="true">
-                <div className="d">{day}</div>
-                <div className="m">{month}</div>
-              </div>
-              <div className="event-info">
-                <div className="event-name">{e.title}</div>
-                <div className="event-loc">{e.location} · {arabicDigits(time)}</div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="rail-card">
-        <div className="rail-title">
-          <span>أندية الجامعة</span>
-          <button type="button" className="see-all" onClick={() => onOpenClub(null)}>عرض الكل</button>
-        </div>
-        {clubs.slice(0, 4).map(c => (
-          <button
-            key={c.id}
-            type="button"
-            className="club-row"
-            onClick={() => onOpenClub(c.id)}
-            aria-label={`فتح ${c.name}`}
-          >
-            {c.image ? (
-              <div className="club-icon club-icon-image" aria-hidden="true">
-                <img src={c.image} alt="" loading="lazy"/>
-              </div>
-            ) : (
-              <div className="club-icon" style={{ background: c.color }} aria-hidden="true">{c.icon}</div>
-            )}
-            <div className="club-info">
-              <div className="club-name">{c.name}</div>
-              <div className="club-members">{arabicDigits(c.members)} عضو · {c.college}</div>
-            </div>
-          </button>
-        ))}
-      </div>
-
-      {trendingTags && trendingTags.length > 0 && (
-        <div className="rail-card">
-          <div className="rail-title"><span>الأكثر تداولاً</span></div>
-          <div className="tag-chips">
-            {trendingTags.map(t => (
-              <button
-                key={t}
-                type="button"
-                className="tag-chip"
-                onClick={() => onSelectTag && onSelectTag(t)}
-                aria-label={`تصفية ب${t}`}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="rail-foot">
-        © رواق ١٤٤٧هـ · بوابة طلابية لجامعة الإمام محمد بن سعود الإسلامية.
-        <br/>
-        نسخة تجريبية · بُنيت لطلبة الجامعة.
-      </div>
-    </aside>
-  );
-}
-
-// =====================
-// Social links
-// =====================
-function SocialLinks({ socials }) {
-  if (!socials || Object.keys(socials).length === 0) return null;
-
-  const meta = {
-    twitter:   { label: "تويتر / X",  icon: "twitter",   color: "#000000" },
-    instagram: { label: "إنستقرام",   icon: "instagram", color: "#c2185b" },
-    snapchat:  { label: "سناب شات",   icon: "snapchat",  color: "#fbbf24" },
-    tiktok:    { label: "تيك توك",    icon: "tiktok",    color: "#1a1a1a" },
-    telegram:  { label: "تيليجرام",   icon: "telegram",  color: "#2aabee" }
-  };
-
-  const entries = Object.entries(socials).filter(([k, v]) => meta[k] && v && (v.url || v.handle));
-  if (entries.length === 0) return null;
-
-  return (
-    <div className="socials">
-      {entries.map(([key, val]) => {
-        const m = meta[key];
-        return (
-          <a
-            key={key}
-            className="social-card"
-            href={val.url || "#"}
-            target="_blank"
-            rel="noopener noreferrer nofollow"
-            aria-label={`${m.label}: ${val.handle || val.url}`}
-          >
-            <div className="social-ico" style={{ background: m.color }} aria-hidden="true">
-              <Icon name={m.icon} size={16}/>
-            </div>
-            <div className="social-text">
-              <div className="social-label">{m.label}</div>
-              <div className="social-handle">{val.handle || val.url}</div>
-            </div>
-            <span className="social-arrow" aria-hidden="true"><Icon name="external" size={14}/></span>
-          </a>
-        );
-      })}
+  const type = {announcement:'إعلان', event:'فعالية', post:'منشور'}[post.type] || 'منشور';
+  const imageSrc = post.image ? (/^https?:\/\//.test(post.image) ? post.image : 'uploads/'+post.image.replace(/^\/?uploads\//,'')) : null;
+  return <article className="post">
+    <div className="post-head"><a className="post-author-link" href={'#clubs/'+encodeURIComponent(club.id)}>
+      <Avatar color={club.color} image={club.image} alt={club.name}>{club.icon}</Avatar>
+      <span><span className="post-author-name">{club.name}<span className="verified" title="نادي جامعي"><Icon name="check" size={11}/></span></span>
+        <span className="post-meta">{club.college}<span>·</span>{relativeTimeAr(post.createdAt || post._createdAt) || post.time}</span></span>
+    </a><span className={'post-type-pill '+post.type}><Icon name={post.type==='event'?'calendar':post.type==='announcement'?'megaphone':'pen'} size={13}/>{type}</span></div>
+    <div className="post-body"><h2 className="post-title">{post.title}</h2><p className={'post-text '+(expanded?'expanded':'')}>{post.body}</p>
+      {(post.body || '').length > 180 && <button className="text-action" onClick={()=>setExpanded(!expanded)} aria-expanded={expanded}>{expanded?'عرض أقل':'قراءة المزيد'}</button>}
+      {imageSrc && !failed && <img className="post-photo" src={imageSrc} alt={post.title} loading="lazy" onError={()=>setFailed(true)}/>}
     </div>
-  );
+    <div className="post-foot"><div className="post-tags">{(post.tags || []).map(t=><a key={t} href={'#feed?tag='+encodeURIComponent(t)}>{t.startsWith('#')?t:'#'+t}</a>)}</div>
+      {post.externalUrl && <a className="text-action" href={post.externalUrl} target="_blank" rel="noopener noreferrer">{post.type==='event'?'رابط الفعالية':'افتح الرابط'}<Icon name="external" size={16}/></a>}
+    </div>
+  </article>;
 }
-
-// Make components and utils globally available
-Object.assign(window, {
-  Avatar, Icon, Sidebar, MainHead, PostCard, FeedRail, SocialLinks,
-  arabicDigits, relativeTimeAr
-});
+function eventIsPast(ev) {
+  return new Date(ev.date+'T'+(ev.time || '23:59:59')+'+03:00').getTime() < Date.now();
+}
+function FeedRail() {
+  const {clubs,events,trendingTags} = React.useContext(window.RiwaqData);
+  const upcoming = events.filter(e=>!eventIsPast(e)).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time)).slice(0,3);
+  return <aside className="rail" aria-label="حول مجتمع رواق">
+    <section className="rail-section"><div className="section-label"><h2>على الموعد</h2><Icon name="calendar" size={18}/></div><p className="rail-sub">مساحة لتجربة جديدة</p>
+      {upcoming.length ? upcoming.map(ev=><a className="event-row" href="#events" key={ev.id}><span className="date-block"><strong>{arabicDigits(Number(ev.date.slice(8,10)))}</strong><small>{new Date(ev.date+'T12:00:00').toLocaleDateString('ar-SA',{calendar:'gregory',month:'short'})}</small></span><span><strong>{ev.title}</strong><small>{ev.location}</small></span><Icon name="chevron" size={15}/></a>) : <div className="rail-empty">لا توجد فعاليات قادمة حاليًا.<br/>تبقى لقاءاتنا السابقة في الأرشيف.</div>}
+      <a className="rail-more" href="#events">تقويم الفعاليات<Icon name="arrow-left" size={16}/></a>
+    </section>
+    <section className="rail-section"><div className="section-label"><h2>تعرّف على الأندية</h2><Icon name="compass" size={18}/></div>
+      {clubs.slice(0,4).map(c=><a className="club-row" href={'#clubs/'+encodeURIComponent(c.id)} key={c.id}><Avatar size="sm" color={c.color} image={c.image}>{c.icon}</Avatar><span><strong>{c.name}</strong><small>{c.cat} · {arabicDigits(c.members)} عضو</small></span><Icon name="chevron" size={15}/></a>)}
+      <a className="rail-more" href="#clubs">كل الأندية<Icon name="arrow-left" size={16}/></a>
+    </section>
+    <section className="rail-section"><div className="section-label"><h2>حديث المجتمع</h2></div><div className="trending-tags">{trendingTags.map(tag=><a href={'#feed?tag='+encodeURIComponent(tag)} key={tag}>{tag}</a>)}</div></section>
+    <p className="rail-footer">رواق · حيث يلتقي الشغف بالأثر<br/>{new Date().getFullYear()} ©</p>
+  </aside>;
+}
+function SocialLinks({socials={}}) {
+  const labels={twitter:'X / تويتر',instagram:'إنستقرام',snapchat:'سناب شات',tiktok:'تيك توك',telegram:'تيليجرام'};
+  return <div className="socials">{Object.entries(socials).filter(([key,v])=>labels[key] && /^https?:\/\//i.test(v.url || '')).map(([key,v])=><a className="social-card" href={v.url} target="_blank" rel="noopener noreferrer" aria-label={`${labels[key]}، ${v.handle || v.url}`} key={key}><span className="social-ico"><Icon name={key}/></span><span><strong>{labels[key]}</strong><small dir="ltr">{v.handle || v.url}</small></span><Icon name="external" size={18}/></a>)}</div>;
+}
+Object.assign(window,{Icon,Avatar,Sidebar,MainHead,PostCard,FeedRail,SocialLinks,arabicDigits,relativeTimeAr,eventIsPast});

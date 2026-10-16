@@ -1,0 +1,15 @@
+Options -Indexes
+DirectoryIndex رواق.html
+
+# Development artifacts and reports must never be served by Apache.
+<FilesMatch "(?i)(^\.|^setup-output\.html$|\.(?:sql|ps1|bat|sh|md|jsx|cjs|log|bak|ini|env|toml)$)">
+    Require all denied
+</FilesMatch>
+
+RewriteEngine On
+RewriteRule ^(?:tests|docs)(?:/|$) - [F,L]
+
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+</IfModule>

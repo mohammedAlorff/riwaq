@@ -30,4 +30,7 @@ echo
   fi
 ) &
 
-php -S "0.0.0.0:${PORT}"
+if [ -f "$(dirname "$0")/api/config.local.php" ]; then
+  export RIWAQ_CONFIG_PATH="$(cd "$(dirname "$0")" && pwd)/api/config.local.php"
+fi
+php -S "127.0.0.1:${PORT}" -t "$(dirname "$0")" "$(dirname "$0")/router.php"

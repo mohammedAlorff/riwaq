@@ -11,7 +11,7 @@ if ($method === 'GET') {
     $ip = riwaq_client_ip() ?: 'unknown';
     riwaq_rate_limit("read:$ip", (int)riwaq_config()['rate_limit']['read_per_ip_per_min'], 60);
 
-    $clubId = isset($_GET['clubId']) ? trim((string)$_GET['clubId']) : '';
+    $clubId = riwaq_str($_GET['clubId'] ?? '', 16);
     if ($clubId === '') riwaq_error('missing_field', 'clubId مطلوب.', 422);
 
     $stmt = $db->prepare("SELECT platform, handle, url FROM socials WHERE club_id = :c");
@@ -55,7 +55,7 @@ if ($method === 'PUT') {
             ];
             $url = $urls[$platform];
         }
-        if ($url !== '' && !filter_var($url, FILTER_VALIDATE_URL)) {
+        if ($url !== '' && !riwaq_is_http_url($url)) {
             riwaq_error('invalid_url', "رابط $platform غير صالح.", 422);
         }
         $clean[$platform] = ['handle' => $handle ?: $url, 'url' => $url];

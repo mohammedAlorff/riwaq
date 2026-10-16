@@ -12,7 +12,7 @@ $u = riwaq_require_user('president', 'admin');
 riwaq_require_csrf();
 riwaq_rate_limit("upload:user:{$u['id']}", 30, 60);
 
-$purpose = isset($_POST['purpose']) ? trim((string)$_POST['purpose']) : '';
+$purpose = riwaq_str($_POST['purpose'] ?? '', 20);
 // نوع الرفع: post (لصور المنشورات، يحتاج رئيس)، club (لشعار النادي، يقبل أدمن)
 
 if (empty($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
